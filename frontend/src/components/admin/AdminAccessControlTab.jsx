@@ -269,9 +269,9 @@ export default function AdminAccessControlTab({
                           {account.email || "No email"}
                           {isSelf ? " (you)" : ""}
                         </p>
-                        <p className="mt-1 max-w-72 truncate text-xs text-zinc-500">
+                        {/* <p className="mt-1 max-w-72 truncate text-xs text-zinc-500">
                           {account.userId || "Awaiting first Firebase login"}
-                        </p>
+                        </p> */}
                       </td>
                       <td className="px-5 py-4">
                         <select
