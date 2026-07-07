@@ -272,6 +272,7 @@ async function createAdminAccount(req, res) {
     const result = await createAdminAccountService({
       actor: req.admin,
       targetUserId: req.body?.userId,
+      targetEmail: req.body?.targetEmail,
       role: req.body?.role,
     });
 
@@ -315,6 +316,30 @@ async function updateAdminAccount(req, res) {
   } catch (error) {
     console.error("Update admin account error:", error);
     return sendError(res, error, "Could not update admin access.");
+  }
+}
+
+
+
+async function deleteAdminAccount(req, res) {
+  try {
+    const result = await deleteAdminAccountService({
+      actor: req.admin,
+      adminId: req.params.adminId,
+    });
+
+    await writeAdminAuditSafe({
+      req,
+      action: "admin.access_deleted",
+      targetAdmin: result.deletedAdmin,
+      before: result.deletedAdmin,
+      after: {},
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Delete admin account error:", error);
+    return sendError(res, error, "Could not remove admin access.");
   }
 }
 
@@ -396,4 +421,6 @@ module.exports = {
   updateAdminAccount,
   listAdminContactMessages,
   updateAdminContactMessageStatus,
+  deleteAdminAccount,
+
 };

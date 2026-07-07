@@ -15,6 +15,8 @@ const {
   updateAdminAccount,
   listAdminContactMessages,
   updateAdminContactMessageStatus,
+  deleteAdminAccount,
+
 } = require("../controllers/admin.controller");
 
 const {
@@ -80,6 +82,12 @@ router.patch(
   "/admins/:adminId",
   requireAdminRole("owner"),
   updateAdminAccount
+);
+
+router.delete(
+  "/admins/:adminId",
+  requireAdminRole("owner"),
+  deleteAdminAccount
 );
 
 module.exports = router;

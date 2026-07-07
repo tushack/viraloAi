@@ -21,7 +21,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-
+import AdminAccessControlTab from "../components/admin/AdminAccessControlTab";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -29,6 +29,7 @@ import AdminContactMessagesTab from "../components/admin/AdminContactMessagesTab
 
 import {
   addAdminUserNote,
+  getAdminAccess,
   getAdminActivity,
   getAdminCalendarEvents,
   getAdminMediaExports,
@@ -246,9 +247,21 @@ export default function AdminPanel() {
   const [drawerSection, setDrawerSection] = useState("overview");
   const [noteText, setNoteText] = useState("");
   const [actionLoading, setActionLoading] = useState("");
+  const [adminAccess, setAdminAccess] = useState(null);
+  const [adminAccessRefreshKey, setAdminAccessRefreshKey] = useState(0);
 
   const kpis = overview?.kpis || {};
 
+  const canManageAdmins =
+    adminAccess?.admin?.capabilities?.canManageAdmins === true;
+
+  const availableTabs = useMemo(
+    () =>
+      canManageAdmins
+        ? [...TABS, { id: "access", label: "Access Control", icon: ShieldCheck }]
+        : TABS,
+    [canManageAdmins]
+  );
   const visibleModules = useMemo(() => {
     const modules = overview?.moduleUsage || [];
     return modules.slice(0, 8);
@@ -293,7 +306,8 @@ export default function AdminPanel() {
     setError("");
 
     try {
-      const [summary, users, activity, calendar, media] = await Promise.all([
+      const [access, summary, users, activity, calendar, media] = await Promise.all([
+        getAdminAccess(),
         getAdminOverview(days),
         getAdminUsers({ page: 1, limit: 50, search: userSearch }),
         getAdminActivity({
@@ -306,6 +320,7 @@ export default function AdminPanel() {
         getAdminMediaExports({ page: 1, limit: 50 }),
       ]);
 
+      setAdminAccess(access);
       setOverview(summary);
       setUsersData(users);
       setActivityData(activity);
@@ -443,6 +458,8 @@ export default function AdminPanel() {
       if (tab === "activity") await loadActivity(activityData.pagination?.page || 1);
       if (tab === "calendar") await loadCalendar(calendarData.pagination?.page || 1);
       if (tab === "exports") await loadMedia(mediaData.pagination?.page || 1);
+      if (tab === "access") setAdminAccessRefreshKey((current) => current + 1);
+
 
     } catch (requestError) {
       setError(requestError.message || "Could not refresh admin data.");
@@ -834,7 +851,7 @@ export default function AdminPanel() {
             <p className="mt-1 leading-6 text-red-100/80">{error}</p>
             {error.toLowerCase().includes("admin access") && (
               <p className="mt-2 text-xs text-red-100/70">
-                Add your login email to backend <code>ADMIN_EMAILS</code>, then restart the backend.
+                Ask an active owner to grant your Firebase account admin access from Access Control.
               </p>
             )}
           </div>
@@ -896,7 +913,7 @@ export default function AdminPanel() {
 
           <section className="mt-5 overflow-x-auto">
             <div className="flex min-w-max gap-2 rounded-3xl border border-white/10 bg-white/[0.035] p-2">
-              {TABS.map((item) => {
+              {availableTabs.map((item) => {
                 const Icon = item.icon;
                 const selected = tab === item.id;
 
@@ -1245,6 +1262,20 @@ export default function AdminPanel() {
                 {!mediaData.items?.length && <EmptyState text="No media exports found." />}
                 <Pagination pagination={mediaData.pagination} onPageChange={loadMedia} />
               </SectionCard>
+            </section>
+          )}
+
+          {tab === "access" && canManageAdmins && (
+            <section className="mt-5">
+              <AdminAccessControlTab
+                currentAdmin={adminAccess?.admin}
+                refreshKey={adminAccessRefreshKey}
+                onChanged={async () => {
+                  const access = await getAdminAccess();
+                  setAdminAccess(access);
+                  await loadActivity(activityData.pagination?.page || 1);
+                }}
+              />
             </section>
           )}
           {tab === "contactMessages" && (

@@ -214,19 +214,45 @@ async function countActiveOwners() {
   return Number(count || 0);
 }
 
-async function createAdminAccount({ actor, targetUserId, role }) {
+
+async function resolveFirebaseUserForAdminTarget({ targetUserId, targetEmail }) {
+  const cleanTargetUserId = cleanText(targetUserId, 200);
+  const suppliedEmail = cleanText(targetEmail, 320);
+
+  if (!cleanTargetUserId && !suppliedEmail) {
+    throw createHttpError("Firebase user ID or email address is required.", 400);
+  }
+
+  try {
+    if (cleanTargetUserId) {
+      return await admin.auth().getUser(cleanTargetUserId);
+    }
+
+    return await admin.auth().getUserByEmail(normalizeEmail(suppliedEmail));
+  } catch (error) {
+    if (error?.code === "auth/user-not-found") {
+      throw createHttpError(
+        "No Firebase account exists for this email. Ask the user to sign up first, then grant admin access.",
+        404
+      );
+    }
+
+    throw error;
+  }
+}
+
+async function createAdminAccount({ actor, targetUserId, targetEmail, role }) {
   if (actor?.role !== "owner") {
     throw createHttpError("Only an owner can add an admin account.", 403);
   }
 
-  const cleanTargetUserId = cleanText(targetUserId, 200);
   const nextRole = normalizeRole(role);
+  const firebaseUser = await resolveFirebaseUserForAdminTarget({
+    targetUserId,
+    targetEmail,
+  });
 
-  if (!cleanTargetUserId) {
-    throw createHttpError("Firebase user ID is required.", 400);
-  }
-
-  const firebaseUser = await admin.auth().getUser(cleanTargetUserId);
+  const cleanTargetUserId = cleanText(firebaseUser.uid, 200);
 
   if (firebaseUser.disabled) {
     throw createHttpError(
@@ -235,18 +261,12 @@ async function createAdminAccount({ actor, targetUserId, role }) {
     );
   }
 
-  const targetEmail = normalizeEmail(firebaseUser.email);
-
+  const email = normalizeEmail(firebaseUser.email);
   const existingByUserId = await findAdminByUserId(cleanTargetUserId);
-  const existingByEmail = await findAdminByEmail(targetEmail);
-
+  const existingByEmail = await findAdminByEmail(email);
   const existing = existingByUserId || existingByEmail;
 
-  if (
-    existing &&
-    existing.user_id &&
-    existing.user_id !== cleanTargetUserId
-  ) {
+  if (existing && existing.user_id && existing.user_id !== cleanTargetUserId) {
     throw createHttpError(
       "This email is already linked to another Firebase admin account.",
       409
@@ -260,7 +280,7 @@ async function createAdminAccount({ actor, targetUserId, role }) {
       .from("admin_users")
       .update({
         user_id: cleanTargetUserId,
-        email: targetEmail,
+        email,
         role: nextRole,
         is_active: true,
       })
@@ -269,23 +289,17 @@ async function createAdminAccount({ actor, targetUserId, role }) {
       .single();
 
     if (error) {
-      throw createHttpError(
-        error.message || "Could not update admin access.",
-        500
-      );
+      throw createHttpError(error.message || "Could not update admin access.", 500);
     }
 
-    return {
-      before,
-      admin: mapAdminAccount(data),
-    };
+    return { before, admin: mapAdminAccount(data) };
   }
 
   const { data, error } = await supabase
     .from("admin_users")
     .insert({
       user_id: cleanTargetUserId,
-      email: targetEmail,
+      email,
       role: nextRole,
       is_active: true,
       created_by_user_id: actor.userId,
@@ -295,16 +309,10 @@ async function createAdminAccount({ actor, targetUserId, role }) {
     .single();
 
   if (error) {
-    throw createHttpError(
-      error.message || "Could not create admin access.",
-      500
-    );
+    throw createHttpError(error.message || "Could not create admin access.", 500);
   }
 
-  return {
-    before: null,
-    admin: mapAdminAccount(data),
-  };
+  return { before: null, admin: mapAdminAccount(data) };
 }
 
 async function updateAdminAccount({
@@ -382,6 +390,48 @@ async function updateAdminAccount({
   };
 }
 
+
+async function deleteAdminAccount({ actor, adminId }) {
+  if (actor?.role !== "owner") {
+    throw createHttpError("Only an owner can remove admin access.", 403);
+  }
+
+  const target = await findAdminById(adminId);
+
+  if (!target) {
+    throw createHttpError("Admin account was not found.", 404);
+  }
+
+  if (target.user_id && target.user_id === actor.userId) {
+    throw createHttpError("You cannot remove your own admin access.", 400);
+  }
+
+  if (target.role === "owner" && target.is_active) {
+    const activeOwnerCount = await countActiveOwners();
+
+    if (activeOwnerCount <= 1) {
+      throw createHttpError(
+        "At least one active owner must remain in the system.",
+        409
+      );
+    }
+  }
+
+  const deletedAdmin = mapAdminAccount(target);
+  const { error } = await supabase
+    .from("admin_users")
+    .delete()
+    .eq("id", target.id);
+
+  if (error) {
+    throw createHttpError(error.message || "Could not remove admin access.", 500);
+  }
+
+  // This deliberately removes only the RBAC record. The Firebase user and their
+  // normal product data remain untouched.
+  return { deletedAdmin };
+}
+
 async function getAdminAccountByUserId(userId) {
   const record = await findAdminByUserId(userId);
   return mapAdminAccount(record);
@@ -443,4 +493,6 @@ module.exports = {
   getAdminAccountByUserId,
   assertAccountDeletionAllowed,
   deactivateAdminAccountForDeletedUser,
+  deleteAdminAccount,
+
 };

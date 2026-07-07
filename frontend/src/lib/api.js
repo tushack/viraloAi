@@ -712,6 +712,7 @@ export async function getAdminUser(userId) {
   return adminRequest(`/users/${encodeURIComponent(userId)}`);
 }
 
+
 export async function updateAdminUserStatus(userId, disabled) {
   if (!userId) {
     throw new Error("User ID is required.");
@@ -786,6 +787,16 @@ export async function updateAdminAccount(adminId, payload) {
   return adminRequest(`/admins/${encodeURIComponent(adminId)}`, {
     method: "PATCH",
     body: payload,
+  });
+}
+
+export async function deleteAdminAccount(adminId) {
+  if (!adminId) {
+    throw new Error("Admin account ID is required.");
+  }
+
+  return adminRequest(`/admins/${encodeURIComponent(adminId)}`, {
+    method: "DELETE",
   });
 }
 
