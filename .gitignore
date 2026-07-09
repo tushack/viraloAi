@@ -20,6 +20,18 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Playwright
+playwright-report/
+test-results/
+.auth/
+
+# Env
+
+.env.test
+.env.production
+playwright.config.js
+tests/
+
 
 # Runtime data
 pids

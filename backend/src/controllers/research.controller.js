@@ -70,6 +70,7 @@ async function generateResearch(req, res) {
       userId: req.user.uid,
       email: req.user.email,
       feature: FEATURES.DASHBOARD_SEARCH,
+      req,
       operation: () =>
         createResearchResult({
           niche: String(niche).trim(),
@@ -153,15 +154,16 @@ async function getDailyNicheIdeas(req, res) {
 
     const execution = shouldConsumeQuota
       ? await runWithFeatureQuota({
-          userId: req.user.uid,
-          email: req.user.email,
-          feature: FEATURES.DASHBOARD_SEARCH,
-          operation: loadIdeas,
-        })
+        userId: req.user.uid,
+        email: req.user.email,
+        feature: FEATURES.DASHBOARD_SEARCH,
+        req,
+        operation: loadIdeas,
+      })
       : {
-          result: await loadIdeas(),
-          usage: null,
-        };
+        result: await loadIdeas(),
+        usage: null,
+      };
 
     const result = execution.result;
 
@@ -345,12 +347,12 @@ async function analyzeCompetitorChannel(req, res) {
       userId: req.user.uid,
       email: req.user.email,
       feature: FEATURES.COMPETITOR_ANALYSIS,
+      req,
       operation: () =>
         analyzeCompetitorChannelResult({
           channelUrl: cleanChannelUrl,
         }),
     });
-
     const result = execution.result;
 
     await logActivitySafe({

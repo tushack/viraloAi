@@ -60,9 +60,9 @@ async function getTrendFeed(req, res) {
           ? result.items.length
           : Array.isArray(result?.sections)
             ? result.sections.reduce(
-                (total, section) => total + (section?.items?.length || 0),
-                0
-              )
+              (total, section) => total + (section?.items?.length || 0),
+              0
+            )
             : 0,
       },
       req,
@@ -109,13 +109,13 @@ async function searchTrendTopics(req, res) {
       userId: req.user.uid,
       email: req.user.email,
       feature: FEATURES.TREND_SEARCH,
+      req,
       operation: () =>
         searchTrendTopicsService({
           userId: req.user.uid,
           payload: req.body || {},
         }),
     });
-
     const result = execution.result;
 
     await logActivitySafe({

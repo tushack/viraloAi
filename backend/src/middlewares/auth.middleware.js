@@ -23,6 +23,9 @@ async function requireFirebaseAuth(req, res, next) {
     req.user = {
       uid: decodedToken.uid,
       email: decodedToken.email || "",
+      emailVerified: decodedToken.email_verified === true,
+      phoneNumber: decodedToken.phone_number || "",
+      phoneVerified: Boolean(decodedToken.phone_number),
       name: decodedToken.name || "",
       picture: decodedToken.picture || "",
       isAdmin:

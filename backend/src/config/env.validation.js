@@ -196,6 +196,7 @@ function validateEnvironment() {
 
   const supabaseUrl = requireEnv("SUPABASE_URL", errors, 10);
   requireEnv("SUPABASE_SERVICE_ROLE_KEY", errors, 16);
+  requireEnv("ABUSE_QUOTA_SECRET", errors, 32);
 
   requireEnv("GROQ_API_KEY", errors, 10);
   requireEnv("YOUTUBE_DATA_API_KEY", errors, 10);

@@ -4,11 +4,18 @@ const {
   getActiveAdminForFirebaseUser,
 } = require("./adminRbac.service");
 
+
+const {
+  reserveAbuseQuotas,
+  releaseAbuseQuotas,
+} = require("./abuseQuota.service");
+
 const FEATURES = Object.freeze({
   DASHBOARD_SEARCH: "dashboard_search",
   TREND_SEARCH: "trend_search",
   COMPETITOR_ANALYSIS: "competitor_analysis",
   YOUTUBE_DOWNLOAD: "youtube_download",
+  MEDIA_EXPORT: "media_export",
 });
 
 const FREE_LIMITS = Object.freeze({
@@ -16,6 +23,7 @@ const FREE_LIMITS = Object.freeze({
   [FEATURES.TREND_SEARCH]: 5,
   [FEATURES.COMPETITOR_ANALYSIS]: 5,
   [FEATURES.YOUTUBE_DOWNLOAD]: 3,
+  [FEATURES.MEDIA_EXPORT]: 3,
 });
 
 const FEATURE_LABELS = Object.freeze({
@@ -23,6 +31,7 @@ const FEATURE_LABELS = Object.freeze({
   [FEATURES.TREND_SEARCH]: "trend searches",
   [FEATURES.COMPETITOR_ANALYSIS]: "competitor analyses",
   [FEATURES.YOUTUBE_DOWNLOAD]: "YouTube downloads",
+  [FEATURES.MEDIA_EXPORT]: "media exports",
 });
 
 function createHttpError(message, statusCode = 400, code = "", extra = {}) {
@@ -149,7 +158,7 @@ function createUpgradeRequiredError({ feature, quota, usedCount, remaining }) {
   );
 }
 
-async function reserveFeatureQuota({ userId, email, feature }) {
+async function reserveFeatureQuota({ userId, email, feature, req }) {
   const access = await getPlanAccessForUser({ userId, email });
   const quota = getQuotaConfig(access, feature);
 
@@ -164,6 +173,7 @@ async function reserveFeatureQuota({ userId, email, feature }) {
         limit: null,
         usedCount: null,
         remaining: null,
+        antiAbuse: null,
       },
     };
   }
@@ -193,13 +203,34 @@ async function reserveFeatureQuota({ userId, email, feature }) {
     });
   }
 
+  const reservation = {
+    userId,
+    feature,
+    windowKey: quota.windowKey,
+    abuseReservations: [],
+  };
+
+  let antiAbuseUsage = null;
+
+  try {
+    const antiAbuse = await reserveAbuseQuotas({
+      userId,
+      email,
+      feature,
+      req,
+      access,
+    });
+
+    reservation.abuseReservations = antiAbuse.reservations || [];
+    antiAbuseUsage = antiAbuse.usage || null;
+  } catch (error) {
+    await releaseFeatureQuota(reservation);
+    throw error;
+  }
+
   return {
     access,
-    reservation: {
-      userId,
-      feature,
-      windowKey: quota.windowKey,
-    },
+    reservation,
     usage: {
       feature,
       plan: "free",
@@ -207,12 +238,15 @@ async function reserveFeatureQuota({ userId, email, feature }) {
       limit: quota.limit,
       usedCount: Number(result.used_count || 0),
       remaining: Number(result.remaining || 0),
+      antiAbuse: antiAbuseUsage,
     },
   };
 }
 
 async function releaseFeatureQuota(reservation) {
   if (!reservation) return;
+
+  await releaseAbuseQuotas(reservation.abuseReservations || []);
 
   const { error } = await supabase.rpc("release_plan_quota", {
     p_user_id: reservation.userId,
@@ -225,8 +259,8 @@ async function releaseFeatureQuota(reservation) {
   }
 }
 
-async function runWithFeatureQuota({ userId, email, feature, operation }) {
-  const quotaResult = await reserveFeatureQuota({ userId, email, feature });
+async function runWithFeatureQuota({ userId, email, feature, operation, req }) {
+  const quotaResult = await reserveFeatureQuota({ userId, email, feature, req });
 
   try {
     const result = await operation();

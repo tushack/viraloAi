@@ -100,17 +100,15 @@ async function convertMediaExport(req, res) {
         youtubeTitle,
       });
 
-    const execution = isYoutubeDownload
-      ? await runWithFeatureQuota({
-          userId: req.user.uid,
-          email: req.user.email,
-          feature: FEATURES.YOUTUBE_DOWNLOAD,
-          operation: executeConversion,
-        })
-      : {
-          result: await executeConversion(),
-          usage: null,
-        };
+    const execution = await runWithFeatureQuota({
+      userId: req.user.uid,
+      email: req.user.email,
+      feature: isYoutubeDownload
+        ? FEATURES.YOUTUBE_DOWNLOAD
+        : FEATURES.MEDIA_EXPORT,
+      req,
+      operation: executeConversion,
+    });
 
     const exportItem = execution.result;
     conversionCompleted = true;
