@@ -1,5 +1,7 @@
 const supabase = require("../config/supabase");
 const { generateGeminiJson } = require("./gemini.service");
+const { generateNvidiaJson } = require("./nvidia.service");
+const { generateCloudflareImage } = require("./cloudflareAi.service");
 
 const FRESH_SEARCH_ANGLES = [
   "latest trending ideas",
@@ -1090,10 +1092,19 @@ async function createContentPackResult(payload) {
 
   try {
     const prompt = buildGeminiContentPackPrompt(payload || {}, fallbackPack);
-    const geminiPack = await generateGeminiJson({ prompt });
+
+    const aiPack =
+      String(process.env.AI_TEXT_PROVIDER || "").toLowerCase() === "nvidia"
+        ? await generateNvidiaJson({
+          prompt,
+          maxTokens: 5000,
+          systemPrompt:
+            "You are a premium YouTube and Shorts content strategist. Generate a detailed, advanced, ready-to-use creator content pack. Return only valid JSON.",
+        })
+        : await generateGeminiJson({ prompt });
 
     return normalizeGeminiContentPack({
-      geminiPack,
+      geminiPack: aiPack,
       fallbackPack,
     });
   } catch (error) {
@@ -1107,49 +1118,212 @@ async function createContentPackResult(payload) {
   }
 }
 
+function inferThumbnailScene({ topic, niche, title, insight, extraPrompt }) {
+  const text = `${topic} ${niche} ${title} ${insight} ${extraPrompt}`.toLowerCase();
+
+  if (
+    text.includes("script") ||
+    text.includes("screenplay") ||
+    text.includes("writing") ||
+    text.includes("formatting")
+  ) {
+    return "a dramatic writer workspace with screenplay pages, red correction marks, a laptop, crumpled paper, rejection mood, cinematic desk lighting, focused creative atmosphere";
+  }
+
+  if (
+    text.includes("ai") ||
+    text.includes("artificial intelligence") ||
+    text.includes("chatgpt") ||
+    text.includes("automation")
+  ) {
+    return "a modern creator working with glowing AI holograms, futuristic laptop setup, digital assistant visuals, premium tech workspace, cinematic blue-purple lighting";
+  }
+
+  if (
+    text.includes("fitness") ||
+    text.includes("workout") ||
+    text.includes("gym") ||
+    text.includes("weight loss")
+  ) {
+    return "a high-energy fitness transformation scene with a determined person training, gym lighting, sweat, motion, strong motivational thumbnail composition";
+  }
+
+  if (
+    text.includes("finance") ||
+    text.includes("money") ||
+    text.includes("invest") ||
+    text.includes("business")
+  ) {
+    return "a premium business decision scene with a focused entrepreneur, laptop, money planning visuals, clean office lighting, serious high-value thumbnail mood";
+  }
+
+  if (
+    text.includes("coding") ||
+    text.includes("programming") ||
+    text.includes("developer") ||
+    text.includes("app")
+  ) {
+    return "a focused developer at a modern desk with laptop code editor glow, debugging mood, clean tech setup, cinematic lighting, premium creator thumbnail look";
+  }
+
+  if (
+    text.includes("youtube") ||
+    text.includes("creator") ||
+    text.includes("viral") ||
+    text.includes("content")
+  ) {
+    return "a creator studio scene with camera, microphone, laptop, content planning board, dramatic lighting, modern YouTube creator setup";
+  }
+
+  if (
+    text.includes("student") ||
+    text.includes("study") ||
+    text.includes("exam") ||
+    text.includes("learn")
+  ) {
+    return "a focused student studying at a desk with books, laptop, notes, dramatic lamp light, exam pressure mood, motivational educational thumbnail style";
+  }
+
+  return `a realistic cinematic scene that directly visualizes the topic "${topic}", with a clear main subject, strong emotion, premium YouTube thumbnail composition, and clean empty space for text overlay`;
+}
+
+function buildThumbnailNegativePrompt() {
+  return [
+    "text",
+    "letters",
+    "words",
+    "captions",
+    "subtitles",
+    "logo",
+    "watermark",
+    "signature",
+    "UI text",
+    "numbers",
+    "blurry",
+    "low quality",
+    "distorted",
+    "extra fingers",
+    "bad hands",
+    "deformed face",
+    "ugly layout",
+    "generic dashboard",
+    "analytics chart",
+    "stock market graph",
+    "line graph",
+    "bar chart",
+    "random arrows",
+    "data screen",
+  ].join(", ");
+}
+
 function buildThumbnailGenerationPrompt({ pack, prompt, variant = 1 }) {
   const topic = cleanString(pack?.topic, "Viral YouTube Topic");
+  const niche = cleanString(pack?.niche, "content creators");
+  const platform = cleanString(pack?.platform, "YouTube");
+  const audience = cleanString(pack?.audience, "New creators");
+  const title = cleanString(pack?.videoTitle || pack?.thumbnailMainText || topic);
+  const insight = cleanString(pack?.insight, "");
   const extraPrompt = cleanString(prompt, "");
 
-  const styles = [
-    "cinematic blue and violet tech creator look with dramatic glow",
-    "premium YouTube growth dashboard look with analytics and arrows",
-    "clean high-contrast creator studio look with neon accents",
-    "modern AI research look with abstract data waves and creator strategy mood",
+  const scene = inferThumbnailScene({
+    topic,
+    niche,
+    title,
+    insight,
+    extraPrompt,
+  });
+
+  const compositions = [
+    "main subject on the left, clean empty space on the right for title overlay",
+    "main subject on the right, clean empty space on the left for title overlay",
+    "center subject with dark clean background area around it for title overlay",
+    "close-up emotional subject with cinematic background blur and empty space for title overlay",
   ];
 
-  const visualStyle = styles[(Number(variant || 1) - 1) % styles.length];
+  const composition =
+    compositions[(Number(variant || 1) - 1) % compositions.length];
 
   return [
-    `Generate a professional 16:9 YouTube banner/thumbnail background image for this topic: ${topic}.`,
-    `Style: ${visualStyle}.`,
-    "Important: Generate only a clean YouTube thumbnail background image. Do not add any text, words, letters, numbers, captions, subtitles, logo, watermark, signature, UI text, or readable typography inside the image.", "Create only a clean visual background with strong composition, premium lighting, modern creator-economy design, abstract visuals, charts without numbers, glow effects, and enough empty space.",
-    "The image should work as a banner background where text can be added later by the frontend/editor.",
-    extraPrompt ? `User extra direction: ${extraPrompt}. Do not include text in the image.` : "",
+    "Create a premium 16:9 YouTube thumbnail background image.",
+    `Video topic: "${topic}".`,
+    `Video title context: "${title}".`,
+    `Niche: ${niche}. Platform: ${platform}. Target audience: ${audience}.`,
+    insight ? `Core idea: ${insight}.` : "",
+
+    `Scene to create: ${scene}.`,
+    `Composition: ${composition}.`,
+
+    extraPrompt
+      ? `User custom direction: ${extraPrompt}. Follow this direction strongly.`
+      : "",
+
+    "Make the image topic-specific and visually meaningful, not generic.",
+    "Use realistic objects, people, emotions, desk setup, environment, or symbolic visuals that match the actual topic.",
+    "Premium YouTube thumbnail style, cinematic lighting, high contrast, sharp subject, clean background, modern creator-economy look.",
+    "Image should look clickable, dramatic, professional, and suitable for a viral educational YouTube video.",
+
+    "Very important: do not create analytics dashboards, line graphs, bar charts, finance charts, random arrows, growth screens, or data UI unless the topic is specifically about analytics.",
+    "Do not add any text, words, letters, captions, subtitles, logos, watermark, UI text, numbers, or readable typography inside the image.",
+    "Leave enough clean empty space for frontend text overlay.",
   ]
     .filter(Boolean)
     .join(" ");
 }
 
 async function generateThumbnailResult({ pack, prompt, variant }) {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not configured on the backend");
-  }
-
   const finalPrompt = buildThumbnailGenerationPrompt({
     pack,
     prompt,
     variant,
   });
 
-  const model = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
+  const imageProvider = String(
+    process.env.IMAGE_GENERATION_PROVIDER || ""
+  ).toLowerCase();
+
+  console.log("Thumbnail image provider:", imageProvider || "gemini");
+
+  if (imageProvider === "cloudflare") {
+    const imageUrl = await generateCloudflareImage({
+      prompt: finalPrompt,
+    });
+
+    return {
+      imageUrl,
+      prompt: finalPrompt,
+      provider: "cloudflare-workers-ai",
+      model:
+        process.env.CLOUDFLARE_IMAGE_MODEL ||
+        "@cf/black-forest-labs/flux-1-schnell",
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  const apiKey = cleanString(process.env.GEMINI_API_KEY)
+    .replace(/^["']|["']$/g, "")
+    .trim();
+
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not configured on the backend");
+  }
+
+  if (apiKey.startsWith("Bearer ")) {
+    throw new Error(
+      "GEMINI_API_KEY me Bearer mat lagao. Sirf raw API key rakho."
+    );
+  }
+
+  const model = cleanString(
+    process.env.GEMINI_IMAGE_MODEL,
+    "gemini-3.1-flash-image"
+  );
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent`,
     {
       method: "POST",
       headers: {
-        "x-goog-api-key": process.env.GEMINI_API_KEY,
+        "x-goog-api-key": apiKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -1166,11 +1340,25 @@ async function generateThumbnailResult({ pack, prompt, variant }) {
     }
   );
 
-  const data = await response.json().catch(() => ({}));
+  const rawText = await response.text().catch(() => "");
+  let data = {};
+
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = {};
+  }
 
   if (!response.ok) {
+    console.error("Gemini thumbnail HTTP status:", response.status);
+    console.error("Gemini thumbnail raw response:", rawText);
+
     throw new Error(
-      data?.error?.message || data?.message || "Failed to generate Gemini thumbnail"
+      data?.error?.message ||
+      data?.errors?.[0]?.message ||
+      data?.message ||
+      rawText ||
+      `Failed to generate Gemini thumbnail. HTTP ${response.status}`
     );
   }
 
@@ -1194,26 +1382,20 @@ async function generateThumbnailResult({ pack, prompt, variant }) {
       .filter(Boolean)
       .join(" ");
 
+    console.error("Gemini thumbnail no image response:", rawText);
+
     throw new Error(
-      textResponse || "Gemini did not return image data. Try a simpler prompt."
+      textResponse ||
+      "Gemini did not return image data. Try gemini-3.1-flash-lite-image or check image model access."
     );
   }
 
-  const outputFormat = mimeType.includes("jpeg") || mimeType.includes("jpg")
-    ? "jpeg"
-    : "png";
-
-  console.log("✅ Gemini thumbnail generated successfully");
-
   return {
-    imageBase64,
     imageUrl: `data:${mimeType};base64,${imageBase64}`,
     prompt: finalPrompt,
+    provider: "gemini-generate-content",
     model,
-    size: "gemini-native",
-    outputFormat,
     generatedAt: new Date().toISOString(),
-    source: "gemini-image",
   };
 }
 

@@ -302,7 +302,7 @@ export default function Settings() {
         <SettingCard
           icon={Database}
           title="Data & Privacy"
-          description="Delete selected records or delete your account after email verification. Permanent purge is scheduled after 300 days."
+          description="Delete selected records or delete your account after email verification. Permanent purge is scheduled after 30 days."
           buttonText="Manage Data"
           onClick={() => navigate("/data-privacy")}
         />

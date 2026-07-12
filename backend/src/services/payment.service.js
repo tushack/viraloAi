@@ -337,12 +337,31 @@ async function createPaymentQuote({ userId, countryCode }) {
   let totalMinor = config.baseUsdCents;
   let taxBps = config.foreignTaxBps;
 
+  // dollar uses
+  // if (resolvedCountryCode === "IN") {
+  //   fxRate = await getLiveUsdToInrRate();
+  //   currency = "INR";
+  //   totalMinor = Math.round(config.baseUsdCents * fxRate);
+  //   taxBps = config.indiaTaxBps;
+  // }
+
+
+  // rupes uses
   if (resolvedCountryCode === "IN") {
-    fxRate = await getLiveUsdToInrRate();
-    currency = "INR";
-    totalMinor = Math.round(config.baseUsdCents * fxRate);
-    taxBps = config.indiaTaxBps;
-  }
+  fxRate = await getLiveUsdToInrRate();
+  currency = "INR";
+
+  const testInrPaise = Number(process.env.VIRALO_PRO_TEST_INR_PAISE || 0);
+
+  totalMinor =
+    Number.isSafeInteger(testInrPaise) && testInrPaise > 0
+      ? testInrPaise
+      : Math.round(config.baseUsdCents * fxRate);
+
+  taxBps = config.indiaTaxBps;
+}
+
+/////////////////////////////////////
 
   const breakdown = calculateTaxInclusiveBreakdown(totalMinor, taxBps);
   const expiresAt = getQuoteExpiry(config);

@@ -28,7 +28,6 @@ import {
   getDailyNicheIdeas,
   getResearchHistory,
   getSavedIdeas,
-  getTopYouTubeChannels,
   getTrendFeed,
   saveIdea,
 } from "../lib/api";
@@ -229,6 +228,44 @@ function buildDashboardStats({ activeData, history, savedIdeasCount }) {
       allCompetitors.length || getList(activeData?.competitors).length,
     savedIdeasCount,
   };
+}
+
+function buildDashboardCompetitorsFromResearch(activeData, activeNiche) {
+  const directCompetitors = getList(activeData?.competitors);
+
+  if (directCompetitors.length > 0) {
+    return directCompetitors.slice(0, 4);
+  }
+
+  const topics = getList(activeData?.trendingTopics).slice(0, 4);
+
+  return topics.map((item, index) => {
+    const topicText = getTextValue(
+      item?.topic || item?.title,
+      `Competitor signal ${index + 1}`
+    );
+
+    return {
+      channel:
+        getTextValue(item?.sourceChannel || item?.channel, "") ||
+        `${activeNiche} Signal ${index + 1}`,
+      channelName:
+        getTextValue(item?.sourceChannel || item?.channel, "") ||
+        `${activeNiche} Signal ${index + 1}`,
+      score: getTextValue(
+        item?.score || item?.aiFit || item?.opportunityScore,
+        `${85 - index * 7}`
+      ),
+      views: getTextValue(
+        item?.actualViews || item?.views || item?.averageViews,
+        "Scan based"
+      ),
+      growth: getTextValue(item?.growth || item?.momentum, "Growing"),
+      channelHandle: "Research scan",
+      channelUrl: getTextValue(item?.sourceUrl || item?.url, ""),
+      sourceUrl: getTextValue(item?.sourceUrl || item?.url, ""),
+    };
+  });
 }
 
 function StatCard({ icon: Icon, label, value, caption }) {
@@ -695,20 +732,15 @@ export default function Dashboard() {
   const dashboardTopicsToShow = topicsToShow.slice(0, 4);
   const hooksToShow = getList(activeResearchData?.viralHooks);
   const titlesToShow = getList(activeResearchData?.titleSuggestions);
-  const topicMetricLabel = activeResearchData?.source === "groq" ? "AI fit" : "Growth";
-  // These channels come from the dedicated YouTube Data API endpoint, never Groq.
-  const competitorsToShow = getList(youtubeCompetitors);
-  const youtubeChannelNames = competitorsToShow
-    .map((item) =>
-      String(
-        item?.channel ||
-        item?.channelName ||
-        item?.channelTitle ||
-        item?.title ||
-        ""
-      ).trim()
-    )
-    .filter(Boolean);
+  const topicMetricLabel =
+    activeResearchData?.source === "groq" ? "AI fit" : "Growth";
+
+  const activeNiche = niche || latestScan?.niche || "your niche";
+
+  const competitorsToShow = buildDashboardCompetitorsFromResearch(
+    activeResearchData,
+    activeNiche
+  );
 
   const baseDashboardStats = buildDashboardStats({
     activeData: activeResearchData,
@@ -729,7 +761,6 @@ export default function Dashboard() {
     titlesToShow.length
   );
 
-  const activeNiche = niche || latestScan?.niche || "your niche";
   const activeSource =
     activeResearchData?.meta?.isCached
       ? "Groq AI ideas cached for today"
@@ -738,48 +769,13 @@ export default function Dashboard() {
         : "No scan yet";
 
   useEffect(() => {
-    if (!user || selectedPlatform !== "YouTube" || activeNiche === "your niche") {
-      setYoutubeCompetitors([]);
-      setCompetitorsLoading(false);
-      setCompetitorsError("");
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    async function loadYouTubeCompetitors() {
-      setCompetitorsLoading(true);
-      setCompetitorsError("");
-
-      try {
-        const data = await getTopYouTubeChannels({
-          niche: activeNiche,
-          limit: 4,
-        });
-
-        if (!cancelled) {
-          setYoutubeCompetitors(getList(data?.channels));
-        }
-      } catch (requestError) {
-        if (!cancelled) {
-          setYoutubeCompetitors([]);
-          setCompetitorsError(
-            requestError.message || "Failed to load public YouTube channel data."
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setCompetitorsLoading(false);
-        }
-      }
-    }
-
-    loadYouTubeCompetitors();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeNiche, selectedPlatform, user]);
+    // Dashboard competitor table will use competitors from current research data only.
+    // This avoids YouTube Search API quota errors.
+    // Sidebar Competitor Analysis remains untouched.
+    setYoutubeCompetitors([]);
+    setCompetitorsLoading(false);
+    setCompetitorsError("");
+  }, [activeResearchData]);
 
   const latestScanDate = formatDate(
     latestScan?.created_at || latestScan?.createdAt || activeResearchData?.meta?.generatedAt
@@ -1035,9 +1031,9 @@ export default function Dashboard() {
         className="relative z-50 overflow-visible rounded-[1.5rem] border border-white/10 bg-white/[0.045] shadow-2xl shadow-black/30 backdrop-blur-xl sm:rounded-[2rem]"
       >
         <div className="relative p-5 sm:p-8 lg:p-10">
-          <div className="absolute right-8 top-8 hidden rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-200 xl:block">
+          {/* <div className="absolute right-8 top-8 hidden rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-200 xl:block">
             {dashboardLoading ? "Syncing dashboard..." : activeSource}
-          </div>
+          </div> */}
 
           <div className="max-w-3xl">
             <div className="mb-5 inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-zinc-300 sm:px-4 sm:text-sm">
@@ -1557,7 +1553,7 @@ export default function Dashboard() {
 
 
                     <p className="mt-1 text-sm leading-6 text-zinc-500">
-                      Real public YouTube channel names and counters for {activeNiche}.
+                      Competitor signals from your latest research scan for {activeNiche}.
                     </p>
                   </div>
 
@@ -1592,7 +1588,7 @@ export default function Dashboard() {
                 {!competitorsLoading && !competitorsError && !competitorsToShow.length && (
                   <Card className="border-white/10 bg-white/[0.04]">
                     <CardContent className="p-6 text-sm text-zinc-400">
-                      No public YouTube channels were found for this niche yet.
+                      Run a fresh scan to generate topic-based competitor signals for this niche.
                     </CardContent>
                   </Card>
                 )}
@@ -1605,9 +1601,9 @@ export default function Dashboard() {
                           <thead className="border-b border-white/10 bg-white/[0.035] text-xs uppercase tracking-[0.16em] text-zinc-500">
                             <tr>
                               <th className="px-5 py-4 font-medium">Top Channel</th>
-                              <th className="px-5 py-4 font-medium">Subscribers</th>
-                              <th className="px-5 py-4 font-medium">Channel Views</th>
-                              <th className="px-5 py-4 font-medium">Videos</th>
+                              <th className="px-5 py-4 font-medium">Score</th>
+                              <th className="px-5 py-4 font-medium">Views</th>
+                              <th className="px-5 py-4 font-medium">Growth</th>
                               <th className="px-5 py-4 font-medium">Open</th>
                             </tr>
                           </thead>
@@ -1622,7 +1618,10 @@ export default function Dashboard() {
                                   item?.channel,
                                   ""
                                 ).trim() || "Unknown Channel";
-                              const channelUrl = getTextValue(item.channelUrl, "");
+                              const channelUrl = getTextValue(
+                                item.channelUrl || item.sourceUrl || item.url,
+                                ""
+                              );
                               const initials = channelName.slice(0, 2).toUpperCase();
 
                               return (
@@ -1653,15 +1652,15 @@ export default function Dashboard() {
                                   </td>
 
                                   <td className="px-5 py-4 text-zinc-200">
-                                    {getTextValue(item.subscribers, "—")}
+                                    {getTextValue(item.score || item.subscribers, "—")}
                                   </td>
 
                                   <td className="px-5 py-4 text-zinc-200">
-                                    {getTextValue(item.channelViews, "—")}
+                                    {getTextValue(item.views || item.channelViews || item.avg_views, "—")}
                                   </td>
 
                                   <td className="px-5 py-4 text-cyan-300">
-                                    {getTextValue(item.videoCount, "—")}
+                                    {getTextValue(item.growth || item.videoCount, "—")}
                                   </td>
 
                                   <td className="px-5 py-4">

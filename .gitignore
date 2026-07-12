@@ -25,12 +25,12 @@ playwright-report/
 test-results/
 .auth/
 
+
 # Env
 
 .env.test
 .env.production
-playwright.config.js
-tests/
+
 
 
 # Runtime data

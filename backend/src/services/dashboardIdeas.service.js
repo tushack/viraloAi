@@ -7,7 +7,7 @@ function cleanString(value, maxLength = 2000) {
     .trim()
     .slice(0, maxLength);
 }
-
+const { generateNvidiaJson } = require("./nvidia.service");
 function clampInteger(value, fallback, min, max) {
   const number = Number(value);
 
@@ -195,13 +195,28 @@ Preferred language: ${input.language}
 Content style: ${input.contentStyle}
 `;
 }
-
 async function requestGroqDashboardJson(prompt) {
+  if (String(process.env.AI_TEXT_PROVIDER || "").toLowerCase() === "nvidia") {
+    const model = process.env.NVIDIA_MODEL || "deepseek-ai/deepseek-v4-pro";
+
+    const raw = await generateNvidiaJson({
+      prompt,
+      maxTokens: 4096,
+      systemPrompt:
+        "You produce premium creator-content strategy as one valid JSON object. Never invent live research data, web results, statistics, or guarantees. Return JSON only.",
+    });
+
+    return {
+      raw,
+      model,
+    };
+  }
+
   const apiKey = cleanString(process.env.GROQ_API_KEY, 400);
   const model = cleanString(
     process.env.GROQ_DASHBOARD_MODEL ||
-      process.env.GROQ_MODEL ||
-      "llama-3.3-70b-versatile",
+    process.env.GROQ_MODEL ||
+    "llama-3.3-70b-versatile",
     160
   );
 
@@ -248,8 +263,8 @@ async function requestGroqDashboardJson(prompt) {
     if (!response.ok) {
       const error = new Error(
         data?.error?.message ||
-          data?.message ||
-          "Groq could not generate dashboard ideas."
+        data?.message ||
+        "Groq could not generate dashboard ideas."
       );
 
       error.statusCode = response.status || 500;

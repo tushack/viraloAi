@@ -86,10 +86,11 @@ export default function PasswordSettingsModal({ open, onOpenChange }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-
+  const [modalMode, setModalMode] = useState("set");
   useEffect(() => {
     if (!open) return;
 
+    setModalMode(hasPasswordProvider ? "update" : "set");
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
@@ -98,12 +99,11 @@ export default function PasswordSettingsModal({ open, onOpenChange }) {
     setShowConfirmPassword(false);
     setMessage("");
     setError("");
-  }, [open, hasPasswordProvider]);
+  }, [open]);
 
   if (!open) return null;
 
-  const isUpdateMode = hasPasswordProvider;
-
+  const isUpdateMode = modalMode === "update";
   const closeModal = () => {
     if (saving) return;
     onOpenChange(false);
@@ -139,24 +139,30 @@ export default function PasswordSettingsModal({ open, onOpenChange }) {
       setError("");
       setMessage("");
 
+      const successMessage = isUpdateMode
+        ? "Password updated successfully."
+        : "Password set successfully.";
+
       if (isUpdateMode) {
         await changePasswordForCurrentAccount({
           currentPassword,
           newPassword,
         });
-
-        setMessage("Password updated successfully.");
       } else {
         await addPasswordToCurrentAccount({
           password: newPassword,
         });
-
-        setMessage("Password set successfully.");
       }
 
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+
+      onOpenChange(false);
+
+      window.setTimeout(() => {
+        window.alert(successMessage);
+      }, 100);
     } catch (requestError) {
       setError(getPasswordErrorMessage(requestError));
     } finally {

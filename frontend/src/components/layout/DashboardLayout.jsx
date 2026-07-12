@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
-import { Loader2 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { Loader2, MailCheck, RefreshCw } from "lucide-react";
+
 
 export default function DashboardLayout({
   children,
@@ -15,7 +16,59 @@ export default function DashboardLayout({
   hideHeaderAction = false,
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { authLoading } = useAuth();
+  const {
+    user,
+    authLoading,
+    sendVerificationEmailForCurrentUser,
+    refreshCurrentUser,
+  } = useAuth();
+
+  const [verificationAction, setVerificationAction] = useState("");
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [verificationError, setVerificationError] = useState("");
+
+  const shouldShowEmailVerification =
+    user?.email && user.emailVerified === false;
+
+  const handleRefreshVerification = async () => {
+    try {
+      setVerificationAction("refresh");
+      setVerificationError("");
+      setVerificationMessage("");
+
+      const refreshedUser = await refreshCurrentUser();
+
+      if (refreshedUser?.emailVerified) {
+        setVerificationMessage("Email verified successfully.");
+      } else {
+        setVerificationError("Email is not verified yet. Please check your inbox.");
+      }
+    } catch (error) {
+      setVerificationError(
+        error?.message || "Could not refresh verification status."
+      );
+    } finally {
+      setVerificationAction("");
+    }
+  };
+
+  const handleSendVerificationEmail = async () => {
+    try {
+      setVerificationAction("send");
+      setVerificationError("");
+      setVerificationMessage("");
+
+      await sendVerificationEmailForCurrentUser();
+
+      setVerificationMessage("Verification email sent. Please check your inbox.");
+    } catch (error) {
+      setVerificationError(
+        error?.message || "Could not send verification email."
+      );
+    } finally {
+      setVerificationAction("");
+    }
+  };
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem("viraloSidebarCollapsed") === "true";
@@ -91,6 +144,71 @@ export default function DashboardLayout({
         />
 
         <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+          {shouldShowEmailVerification && (
+            <div className="mb-6 rounded-3xl border border-amber-300/20 bg-amber-300/10 p-4 shadow-lg shadow-black/20">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-300/15">
+                    <MailCheck className="h-5 w-5 text-amber-200" />
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-semibold text-amber-100">
+                      Verify your email to use free credits
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-amber-100/70">
+                      We sent verification to{" "}
+                      <span className="font-semibold text-amber-50">
+                        {user.email}
+                      </span>
+                      . After verifying, click refresh status.
+                    </p>
+
+                    {(verificationMessage || verificationError) && (
+                      <p
+                        className={`mt-2 text-xs ${verificationError ? "text-red-200" : "text-emerald-200"
+                          }`}
+                      >
+                        {verificationError || verificationMessage}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={handleSendVerificationEmail}
+                    disabled={Boolean(verificationAction)}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-amber-200/20 bg-amber-200/10 px-4 text-xs font-semibold text-amber-50 transition hover:bg-amber-200/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {verificationAction === "send" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MailCheck className="h-4 w-4" />
+                    )}
+                    Resend email
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleRefreshVerification}
+                    disabled={Boolean(verificationAction)}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-amber-200 px-4 text-xs font-semibold text-black transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {verificationAction === "refresh" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    Refresh status
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {children}
         </div>
       </main>

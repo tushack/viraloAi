@@ -7,7 +7,7 @@ import {
   Sparkles,
   User,
 } from "lucide-react";
-
+import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -19,6 +19,7 @@ import {
 } from "../lib/profileStore";
 
 export default function Settings() {
+  const navigate = useNavigate();
   const { user, authLoading, setAuthModalOpen } = useAuth();
 
   const [form, setForm] = useState({
@@ -277,9 +278,10 @@ export default function Settings() {
 
               <Button
                 type="button"
+                onClick={() => navigate("/payment")}
                 className="mt-4 h-10 w-full rounded-full bg-white px-5 text-sm font-semibold text-black hover:bg-zinc-200"
               >
-                Upgrade
+                Upgrade Now
               </Button>
             </div>
           </CardContent>
@@ -338,7 +340,7 @@ export default function Settings() {
               </Field>
             </div>
 
-      
+
 
             <Field label="Website / Portfolio">
               <input

@@ -6,6 +6,7 @@ import {
   linkWithPopup,
   onAuthStateChanged,
   reauthenticateWithCredential,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
@@ -106,6 +107,8 @@ export function AuthProvider({ children }) {
       displayName: cleanUserName,
     });
 
+    await sendEmailVerification(result.user);
+
     await result.user.reload();
 
     applyUser(auth.currentUser || result.user);
@@ -131,6 +134,37 @@ export function AuthProvider({ children }) {
     setAuthModalOpen(false);
 
     return result.user;
+  };
+
+  const sendVerificationEmailForCurrentUser = async () => {
+    const currentUser = auth.currentUser;
+
+    if (!currentUser?.email) {
+      throw createClientError("Account email is required.");
+    }
+
+    if (currentUser.emailVerified) {
+      return currentUser;
+    }
+
+    await sendEmailVerification(currentUser);
+
+    return currentUser;
+  };
+
+  const refreshCurrentUser = async () => {
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      return null;
+    }
+
+    await currentUser.reload();
+    await currentUser.getIdToken(true);
+
+    applyUser(auth.currentUser || currentUser);
+
+    return auth.currentUser || currentUser;
   };
 
   // Google login user ke liye password login enable karega.
@@ -266,7 +300,8 @@ export function AuthProvider({ children }) {
         signInWithGoogle,
         createEmailPasswordAccount,
         signInWithEmailPassword,
-
+        sendVerificationEmailForCurrentUser,
+        refreshCurrentUser,
         addPasswordToCurrentAccount,
         changePasswordForCurrentAccount,
         connectGoogleToCurrentAccount,
