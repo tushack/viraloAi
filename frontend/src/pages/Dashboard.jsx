@@ -44,10 +44,10 @@ function getList(value) {
 }
 
 function isGroqDashboardData(value) {
-  return Boolean(
-    value &&
-    (value.source === "groq" || value?.meta?.aiProvider === "groq")
-  );
+  const provider = String(value?.meta?.aiProvider || value?.source || "")
+    .toLowerCase();
+
+  return Boolean(value && ["nvidia", "groq"].includes(provider));
 }
 
 function normalizeApiList(response) {
@@ -344,6 +344,48 @@ function EmptyPanel({ title, description, buttonLabel, onButtonClick }) {
   );
 }
 
+
+function UpgradePlanModal({ open, onClose, onUpgrade }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#070A12] p-6 shadow-2xl shadow-black/60">
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-300/10">
+          <Sparkles className="h-6 w-6 text-cyan-300" />
+        </div>
+
+        <h3 className="text-xl font-semibold text-white">
+          Free generations finished
+        </h3>
+
+        <p className="mt-3 text-sm leading-6 text-zinc-400">
+          You have used all your free content generations. Please upgrade your
+          plan to continue generating more content ideas.
+        </p>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <Button
+            type="button"
+            onClick={onUpgrade}
+            className="h-11 flex-1 rounded-full bg-white px-5 text-sm font-semibold text-black hover:bg-zinc-200"
+          >
+            Upgrade Plan
+          </Button>
+
+          <Button
+            type="button"
+            onClick={onClose}
+            className="h-11 flex-1 rounded-full border border-white/10 bg-white/[0.04] px-5 text-sm font-semibold text-zinc-200 hover:bg-white/[0.08]"
+          >
+            Not now
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TypewriterText({ words, className = "" }) {
   const safeWords = words?.length
     ? words
@@ -519,8 +561,8 @@ export default function Dashboard() {
   const [apiData, setApiData] = useState(null);
   const [error, setError] = useState("");
   const [savingText, setSavingText] = useState("");
-
-  // Restore the current scan from navigation state or browser storage.
+  const [generationUsage, setGenerationUsage] = useState(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);  // Restore the current scan from navigation state or browser storage.
   // This does not call the API and therefore keeps the UI responsive.
   useEffect(() => {
     if (authLoading) return;
@@ -538,6 +580,8 @@ export default function Dashboard() {
       setCompetitorsError("");
       setDashboardError("");
       setDashboardLoading(false);
+      setGenerationUsage(null);
+      setUpgradeModalOpen(false);
       return;
     }
 
@@ -616,7 +660,7 @@ export default function Dashboard() {
             niche: "",
             platform: selectedPlatform,
             audience: selectedAudience,
-            limit: 20,
+            limit: 5,
             forceRefresh: false,
           }),
           getResearchHistory(),
@@ -729,11 +773,16 @@ export default function Dashboard() {
       : null;
 
   const topicsToShow = getList(activeResearchData?.trendingTopics);
-  const dashboardTopicsToShow = topicsToShow.slice(0, 4);
+  const dashboardTopicsToShow = topicsToShow.slice(0, 5);
   const hooksToShow = getList(activeResearchData?.viralHooks);
   const titlesToShow = getList(activeResearchData?.titleSuggestions);
   const topicMetricLabel =
-    activeResearchData?.source === "groq" ? "AI fit" : "Growth";
+    ["nvidia", "groq"].includes(
+      String(activeResearchData?.meta?.aiProvider || activeResearchData?.source || "")
+        .toLowerCase()
+    )
+      ? "AI fit"
+      : "Growth";
 
   const activeNiche = niche || latestScan?.niche || "your niche";
 
@@ -760,7 +809,15 @@ export default function Dashboard() {
     hooksToShow.length ||
     titlesToShow.length
   );
+  const currentGenerationUsage =
+    activeResearchData?.meta?.usage || generationUsage;
 
+  const hasLimitedGenerationUsage =
+    currentGenerationUsage && !currentGenerationUsage.unlimited;
+
+  const generationLimitReached =
+    hasLimitedGenerationUsage &&
+    Number(currentGenerationUsage.remaining || 0) <= 0;
   const activeSource =
     activeResearchData?.meta?.isCached
       ? "Groq AI ideas cached for today"
@@ -795,6 +852,10 @@ export default function Dashboard() {
       return;
     }
 
+    if (generationLimitReached) {
+      setUpgradeModalOpen(true);
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -803,9 +864,11 @@ export default function Dashboard() {
         niche,
         platform: selectedPlatform,
         audience: selectedAudience,
-        limit: 20,
+        limit: 10,
         forceRefresh: true,
       });
+
+      setGenerationUsage(data?.meta?.usage || null);
 
       setApiData(data);
 
@@ -833,6 +896,19 @@ export default function Dashboard() {
       localStorage.setItem(storageKey, JSON.stringify(cachePayload));
       localStorage.setItem(CURRENT_RESEARCH_KEY, JSON.stringify(cachePayload));
     } catch (err) {
+      if (err?.upgrade) {
+        setGenerationUsage({
+          plan: err.upgrade.plan || "free",
+          limit: err.upgrade.limit,
+          usedCount: err.upgrade.usedCount,
+          remaining: err.upgrade.remaining,
+          unlimited: false,
+        });
+
+        setUpgradeModalOpen(true);
+        return;
+      }
+
       if (redirectToUpgrade(navigate, err)) {
         return;
       }
@@ -1098,10 +1174,10 @@ export default function Dashboard() {
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Finding Ideas...
+                  Generating Ideas...
                 </>
               ) : (
-                "Refresh Ideas"
+                "Generate Ideas"
               )}
             </Button>
           </div>
@@ -1109,6 +1185,13 @@ export default function Dashboard() {
           {(error || dashboardError) && (
             <p className="mt-3 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
               {error || dashboardError}
+            </p>
+          )}
+          {hasLimitedGenerationUsage && (
+            <p className="mt-3 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-100">
+              {currentGenerationUsage.plan === "free"
+                ? `Free content generations left: ${currentGenerationUsage.remaining} / ${currentGenerationUsage.limit}`
+                : `Pro content generations left: ${currentGenerationUsage.remaining} / ${currentGenerationUsage.limit}`}
             </p>
           )}
         </div>
@@ -1175,8 +1258,7 @@ export default function Dashboard() {
               <section className="mt-8">
                 <EmptyPanel
                   title="Set your niche to start"
-                  description="Enter a niche like Fitness, Finance, Gaming, AI Tools, or Motivation and click Refresh Ideas. Your dashboard will show 4 fresh ideas here and more on the Trends page."
-                />
+                  description="Enter a niche like Fitness, Finance, Gaming, AI Tools, or Motivation and click Generate Ideas. Your dashboard will show fresh NVIDIA-generated ideas here and more on the Trends page." />
               </section>
             )}
           {!dashboardLoading &&
@@ -1298,7 +1380,7 @@ export default function Dashboard() {
                     </h2>
 
                     <p className="mt-1 text-sm leading-6 text-zinc-500">
-                      Fresh Groq AI-generated ideas for your niche. These are
+                      Fresh AI-generated ideas for your niche. These are
                       creative recommendations, not live Apify trend metrics.
                     </p>
                   </div>
@@ -1693,6 +1775,14 @@ export default function Dashboard() {
         userId={user?.uid}
         defaultTopic={activeNiche}
         variant="dashboard-floating"
+      />
+      <UpgradePlanModal
+        open={upgradeModalOpen}
+        onClose={() => setUpgradeModalOpen(false)}
+        onUpgrade={() => {
+          setUpgradeModalOpen(false);
+          navigate("/payment");
+        }}
       />
     </DashboardLayout>
   );

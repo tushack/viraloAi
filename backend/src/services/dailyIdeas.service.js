@@ -37,10 +37,10 @@ function isSameDay(dateValue) {
 }
 
 function isGroqDashboardResponse(response) {
-  return Boolean(
-    response &&
-      (response.source === "groq" || response?.meta?.aiProvider === "groq")
-  );
+  const provider = String(response?.meta?.aiProvider || response?.source || "")
+    .toLowerCase();
+
+  return Boolean(response && ["nvidia", "groq"].includes(provider));
 }
 
 async function getLatestResearch({ userId, niche }) {
@@ -125,8 +125,7 @@ async function getDailyNicheIdeasService({
   });
 
   const latestResponse = parseResponseJson(latestNicheResearch?.response_json);
-  const requestedLimit = Math.max(4, Math.min(Number(limit) || 20, 20));
-
+  const requestedLimit = Math.max(5, Math.min(Number(limit) || 8, 10));
   const hasEnoughTopics =
     Array.isArray(latestResponse?.trendingTopics) &&
     latestResponse.trendingTopics.length >= Math.min(requestedLimit, 4);
@@ -148,7 +147,7 @@ async function getDailyNicheIdeasService({
       audience: latestNicheResearch.audience || audience,
       meta: {
         ...(latestResponse.meta || {}),
-        aiProvider: "groq",
+        aiProvider: latestResponse?.meta?.aiProvider || latestResponse?.source || "nvidia",
         niche: finalNiche,
         platform: latestNicheResearch.platform || platform,
         audience: latestNicheResearch.audience || audience,

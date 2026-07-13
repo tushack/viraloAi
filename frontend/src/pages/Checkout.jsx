@@ -64,6 +64,21 @@ function formatMinorAmount(amountMinor, currency) {
   }
 }
 
+function formatUsdCents(cents) {
+  const amount = Number(cents || 0) / 100;
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return "$0.00";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 function formatFxRate(rate) {
   const numberRate = Number(rate);
 
@@ -113,6 +128,16 @@ export default function Checkout() {
     return `Pay ${formatMinorAmount(quote.totalMinor, quote.currency)}`;
   }, [quote]);
 
+  const basePriceLabel = useMemo(() => {
+    if (!quote) return "Loading...";
+
+    return formatUsdCents(quote.baseUsdCents);
+  }, [quote]);
+
+  const planPeriodLabel = quote?.periodDays
+    ? `${quote.periodDays} days`
+    : "30 days";
+
   const loadQuote = useCallback(async () => {
     try {
       setLoadingQuote(true);
@@ -161,7 +186,7 @@ export default function Checkout() {
         amount: order.amount,
         currency: order.currency,
         name: "Viralo AI",
-        description: "Pro unlimited access for 30 days",
+        description: `Pro unlimited access for ${planPeriodLabel}`,
         order_id: order.orderId,
         prefill: {
           email: user?.email || "",
@@ -176,7 +201,7 @@ export default function Checkout() {
 
             setSuccess(
               verification?.message ||
-                "Payment verified. Pro unlimited access is active."
+              "Payment verified. Pro unlimited access is active."
             );
 
             window.setTimeout(() => {
@@ -185,7 +210,7 @@ export default function Checkout() {
           } catch (verificationError) {
             setError(
               verificationError.message ||
-                "Payment completed but verification is pending. Refresh after a moment."
+              "Payment completed but verification is pending. Refresh after a moment."
             );
           } finally {
             setProcessing(false);
@@ -201,7 +226,7 @@ export default function Checkout() {
       checkout.on("payment.failed", (response) => {
         setError(
           response?.error?.description ||
-            "Payment was not completed. Please try again."
+          "Payment was not completed. Please try again."
         );
         setProcessing(false);
       });
@@ -272,7 +297,7 @@ export default function Checkout() {
                 <h2 className="text-xl font-semibold text-white">Viralo AI Pro</h2>
                 <p className="mt-1 text-sm leading-6 text-zinc-400">
                   Unlimited creator research tools, complete history, and all current
-                  Pro features for 30 days.
+                  Pro features for {planPeriodLabel}.
                 </p>
               </div>
             </div>
@@ -282,7 +307,7 @@ export default function Checkout() {
                 Base plan price
               </p>
               <p className="mt-2 text-4xl font-black tracking-tight text-white">
-                $20.00
+                {basePriceLabel}
               </p>
               <p className="mt-2 text-sm leading-6 text-zinc-400">
                 The product price is fixed in USD. The checkout total below is the
@@ -339,8 +364,7 @@ export default function Checkout() {
             ) : quote ? (
               <>
                 <div className="mt-7 space-y-4 border-y border-white/10 py-5 text-sm">
-                  <SummaryRow label="Product price" value="$20.00" />
-
+                  <SummaryRow label="Product price" value={basePriceLabel} />
                   {/* {isIndia && (
                     <SummaryRow
                       label="Live exchange rate"

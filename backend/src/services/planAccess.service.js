@@ -26,6 +26,10 @@ const FREE_LIMITS = Object.freeze({
   [FEATURES.MEDIA_EXPORT]: 3,
 });
 
+const PAID_LIMITS = Object.freeze({
+  [FEATURES.DASHBOARD_SEARCH]: 100,
+});
+
 const FEATURE_LABELS = Object.freeze({
   [FEATURES.DASHBOARD_SEARCH]: "dashboard searches",
   [FEATURES.TREND_SEARCH]: "trend searches",
@@ -119,7 +123,28 @@ function getQuotaConfig(access, feature) {
   }
 
   // Paid users and active RBAC admins have full unlimited access.
-  if (access.isAdmin || access.isPaid) {
+  if (access.isAdmin) {
+    return {
+      unlimited: true,
+      limit: null,
+      windowKey: null,
+      resetAt: null,
+    };
+  }
+
+  const paidLimit = access.isPaid ? PAID_LIMITS[feature] : null;
+
+  if (paidLimit) {
+    return {
+      unlimited: false,
+      limit: paidLimit,
+      windowKey: "lifetime",
+      resetAt: null,
+      paidLimited: true,
+    };
+  }
+
+  if (access.isPaid) {
     return {
       unlimited: true,
       limit: null,
@@ -233,7 +258,7 @@ async function reserveFeatureQuota({ userId, email, feature, req }) {
     reservation,
     usage: {
       feature,
-      plan: "free",
+      plan: access.plan,
       unlimited: false,
       limit: quota.limit,
       usedCount: Number(result.used_count || 0),

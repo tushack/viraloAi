@@ -7,6 +7,8 @@ function cleanString(value, maxLength = 2000) {
     .trim()
     .slice(0, maxLength);
 }
+
+const { generateCloudflareJson } = require("./cloudflareAi.service");
 const { generateNvidiaJson } = require("./nvidia.service");
 function clampInteger(value, fallback, min, max) {
   const number = Number(value);
@@ -196,14 +198,33 @@ Content style: ${input.contentStyle}
 `;
 }
 async function requestGroqDashboardJson(prompt) {
+
+  if (String(process.env.AI_TEXT_PROVIDER || "").toLowerCase() === "cloudflare") {
+    const model =
+      process.env.CLOUDFLARE_TEXT_MODEL ||
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+
+    const raw = await generateCloudflareJson({
+      prompt,
+      maxTokens: 1600,
+      systemPrompt:
+        "You are a premium YouTube content strategist. Return one compact valid JSON object only. No markdown. No live stats. No fake sources.",
+    });
+
+    return {
+      raw,
+      model,
+    };
+  }
+
   if (String(process.env.AI_TEXT_PROVIDER || "").toLowerCase() === "nvidia") {
     const model = process.env.NVIDIA_MODEL || "deepseek-ai/deepseek-v4-pro";
 
     const raw = await generateNvidiaJson({
       prompt,
-      maxTokens: 4096,
+      maxTokens: 1800,
       systemPrompt:
-        "You produce premium creator-content strategy as one valid JSON object. Never invent live research data, web results, statistics, or guarantees. Return JSON only.",
+        "You are a premium YouTube content strategist. Return one compact valid JSON object only. No markdown. No live stats. No fake sources.",
     });
 
     return {
@@ -309,7 +330,7 @@ async function generateDashboardIdeasWithGroq({
     contentStyle:
       cleanString(contentStyle, 180) ||
       "Educational, practical, and creator-friendly",
-    limit: clampInteger(limit, 20, 4, 20),
+    limit: clampInteger(limit, 8, 5, 10),
   };
 
   if (!input.niche) {
@@ -321,11 +342,11 @@ async function generateDashboardIdeasWithGroq({
   const { raw, model } = await requestGroqDashboardJson(buildPrompt(input));
   const trendingTopics = normalizeTopics(raw?.trendingTopics, input);
   const viralHooks = uniqueTextList(raw?.viralHooks, {
-    maxItems: 6,
+    maxItems: 4,
     maxLength: 300,
   });
   const titleSuggestions = uniqueTextList(raw?.titleSuggestions, {
-    maxItems: 6,
+    maxItems: 4,
     maxLength: 180,
   });
 
@@ -343,6 +364,7 @@ async function generateDashboardIdeasWithGroq({
   }
 
   const generatedAt = new Date().toISOString();
+  const aiProvider = String(process.env.AI_TEXT_PROVIDER || "groq").toLowerCase();
 
   return {
     niche: input.niche,
@@ -355,9 +377,9 @@ async function generateDashboardIdeasWithGroq({
     // sections. This AI-generation endpoint does not fabricate competitors.
     competitors: [],
     sourceVideos: [],
-    source: "groq",
+    source: aiProvider,
     meta: {
-      aiProvider: "groq",
+      aiProvider,
       model,
       generatedAt,
       isCached: false,

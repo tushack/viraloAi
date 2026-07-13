@@ -77,7 +77,7 @@ async function generateResearch(req, res) {
           platform,
           audience,
           userId: req.user.uid,
-          maxTopics: 20,
+          maxTopics: 10,
         }),
     });
 
@@ -142,13 +142,24 @@ async function getDailyNicheIdeas(req, res) {
     const shouldConsumeQuota =
       Boolean(cleanNiche) || String(forceRefresh || "").toLowerCase() === "true";
 
+    const access = await getPlanAccessForUser({
+      userId: req.user.uid,
+      email: req.user.email,
+    });
+
+    const requestedLimit = Number(limit) || 0;
+    const effectiveLimit =
+      access.isPaid || access.isAdmin
+        ? Math.min(requestedLimit || 10, 10)
+        : Math.min(requestedLimit || 8, 8);
+
     const loadIdeas = () =>
       getDailyNicheIdeasService({
         userId: req.user.uid,
         niche: cleanNiche,
         platform: platform || "YouTube",
         audience: audience || "New creators",
-        limit: Number(limit) || 20,
+        limit: effectiveLimit,
         forceRefresh: String(forceRefresh || "").toLowerCase() === "true",
       });
 

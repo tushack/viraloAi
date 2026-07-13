@@ -37,9 +37,9 @@ function formatDate(dateValue) {
 
 function MiniStat({ label, value }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-      <p className="text-zinc-500">{label}</p>
-      <p className="mt-1 font-semibold text-white">{value}</p>
+    <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3">
+      <p className="truncate text-zinc-500">{label}</p>
+      <p className="mt-1 truncate font-semibold text-white">{value}</p>
     </div>
   );
 }
@@ -383,18 +383,21 @@ export default function History() {
                   key={item.id}
                   className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 transition hover:-translate-y-0.5 hover:bg-white/[0.07]"
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px_108px] lg:items-center">
                     <div className="flex min-w-0 gap-4">
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-cyan-300/10">
                         <Clock className="h-5 w-5 text-cyan-300" />
                       </div>
 
                       <div className="min-w-0">
-                        <h3 className="truncate text-base font-semibold text-white">
+                        <h3
+                          className="max-w-full truncate text-base font-semibold text-white"
+                          title={item.niche || "Untitled research"}
+                        >
                           {item.niche || "Untitled research"}
                         </h3>
 
-                        <p className="mt-1 text-sm text-zinc-500">
+                        <p className="mt-1 truncate text-sm text-zinc-500">
                           {item.platform || "YouTube"} •{" "}
                           {item.audience || "New creators"} •{" "}
                           {formatDate(item.created_at)}
@@ -402,7 +405,7 @@ export default function History() {
                       </div>
                     </div>
 
-                    <div className="grid gap-3 text-xs sm:grid-cols-3 lg:w-[360px]">
+                    <div className="grid min-w-0 grid-cols-3 gap-3 text-xs">
                       <MiniStat label="Topics" value={topicsCount} />
                       <MiniStat label="Hooks" value={hooksCount} />
                       <MiniStat label="Titles" value={titlesCount} />
@@ -411,7 +414,7 @@ export default function History() {
                     <Button
                       type="button"
                       onClick={() => handleOpenHistory(item)}
-                      className="h-10 shrink-0 rounded-full bg-white px-4 text-xs font-semibold text-black hover:bg-zinc-200"
+                      className="h-10 w-full shrink-0 justify-center rounded-full bg-white px-4 text-xs font-semibold text-black hover:bg-zinc-200"
                     >
                       Open
                       <ArrowRight className="h-4 w-4" />

@@ -1,10 +1,27 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Crown, Sparkles, Zap } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
+import { createProPaymentQuote } from "../lib/paymentApi";
+
+
+function formatUsdCents(cents) {
+  const amount = Number(cents || 0) / 100;
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return "$0.00";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+  }).format(amount);
+}
 
 const plans = [
   {
@@ -26,7 +43,7 @@ const plans = [
   },
   {
     name: "Pro",
-    price: "$9",
+    price: "Loading...",
     period: "for 30 days",
     description:
       "Unlock unlimited research, trends, competitor analysis, downloads, and creator tools.",
@@ -50,6 +67,34 @@ export default function Payment() {
   const location = useLocation();
   const upgradeDetails = location.state?.upgrade || null;
 
+  const [quote, setQuote] = useState(null);
+  const [priceError, setPriceError] = useState("");
+
+  const loadQuote = useCallback(async () => {
+    try {
+      setPriceError("");
+      const nextQuote = await createProPaymentQuote();
+      setQuote(nextQuote || null);
+    } catch (error) {
+      setQuote(null);
+      setPriceError(error.message || "Could not load live plan price.");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadQuote();
+  }, [loadQuote]);
+
+  const proPriceLabel = useMemo(() => {
+    if (!quote) return "Loading...";
+
+    return formatUsdCents(quote.baseUsdCents);
+  }, [quote]);
+
+  const proPeriodLabel = quote?.periodDays
+    ? `for ${quote.periodDays} days`
+    : "for 30 days";
+
   const handlePlanAction = (planName) => {
     if (planName === "Free") return;
 
@@ -71,7 +116,7 @@ export default function Payment() {
             </div>
 
             <h1 className="max-w-3xl text-3xl font-semibold tracking-tight text-white sm:text-5xl">
-              Go Pro for $20. Create without limits.
+              Go Pro for {proPriceLabel}. Create without limits.
             </h1>
 
             <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-400 sm:text-base">
@@ -83,6 +128,12 @@ export default function Payment() {
             {upgradeDetails?.label && (
               <p className="mt-4 inline-flex rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs font-semibold text-amber-100">
                 Your free {upgradeDetails.label} limit has been reached.
+              </p>
+            )}
+
+            {priceError && (
+              <p className="mt-4 inline-flex rounded-full border border-red-300/20 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-100">
+                {priceError}
               </p>
             )}
           </div>
@@ -100,15 +151,16 @@ export default function Payment() {
       <section className="grid items-stretch gap-5 lg:grid-cols-2">
         {plans.map((plan) => {
           const Icon = plan.icon;
+          const displayPrice = plan.name === "Pro" ? proPriceLabel : plan.price;
+          const displayPeriod = plan.name === "Pro" ? proPeriodLabel : plan.period;
 
           return (
             <Card
               key={plan.name}
-              className={`relative flex h-full overflow-hidden border-white/10 bg-white/[0.04] shadow-2xl shadow-black/20 transition hover:-translate-y-1 hover:bg-white/[0.06] ${
-                plan.highlighted
+              className={`relative flex h-full overflow-hidden border-white/10 bg-white/[0.04] shadow-2xl shadow-black/20 transition hover:-translate-y-1 hover:bg-white/[0.06] ${plan.highlighted
                   ? "ring-1 ring-cyan-300/30 shadow-cyan-950/30"
                   : ""
-              }`}
+                }`}
             >
               {plan.highlighted && (
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-300 to-violet-400" />
@@ -118,11 +170,10 @@ export default function Payment() {
                 <div className="mb-6 flex items-start justify-between gap-4">
                   <div className="flex min-w-0 items-start gap-4">
                     <div
-                      className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 ${
-                        plan.highlighted
+                      className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 ${plan.highlighted
                           ? "bg-cyan-300/15 text-cyan-300 ring-cyan-300/20"
                           : "bg-white/[0.06] text-zinc-300 ring-white/10"
-                      }`}
+                        }`}
                     >
                       <Icon className="h-7 w-7" />
                     </div>
@@ -139,11 +190,10 @@ export default function Payment() {
                   </div>
 
                   <span
-                    className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
-                      plan.highlighted
+                    className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${plan.highlighted
                         ? "bg-cyan-300/10 text-cyan-200"
                         : "bg-white/[0.06] text-zinc-300"
-                    }`}
+                      }`}
                   >
                     {plan.badge}
                   </span>
@@ -151,11 +201,11 @@ export default function Payment() {
 
                 <div className="mb-7 flex items-end gap-2">
                   <span className="text-5xl font-black tracking-tight text-white">
-                    {plan.price}
+                    {displayPrice}
                   </span>
 
                   <span className="pb-2 text-sm text-zinc-500">
-                    / {plan.period}
+                    / {displayPeriod}
                   </span>
                 </div>
 
@@ -178,11 +228,10 @@ export default function Payment() {
                     type="button"
                     onClick={() => handlePlanAction(plan.name)}
                     disabled={plan.name === "Free"}
-                    className={`h-14 w-full rounded-full px-5 text-sm font-semibold ${
-                      plan.highlighted
+                    className={`h-14 w-full rounded-full px-5 text-sm font-semibold ${plan.highlighted
                         ? "bg-cyan-300 text-black shadow-lg shadow-cyan-500/20 hover:bg-cyan-200"
                         : "border border-white/10 bg-white/[0.05] text-zinc-400 opacity-100 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-100"
-                    }`}
+                      }`}
                   >
                     {plan.buttonText}
                   </Button>
