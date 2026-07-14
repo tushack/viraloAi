@@ -14,7 +14,8 @@ try {
 
 const express = require("express");
 const cors = require("cors");
-
+const helmet = require("helmet");
+const { rateLimit } = require("express-rate-limit");
 const researchRoutes = require("./routes/research.routes");
 const savedIdeasRoutes = require("./routes/savedIdeas.routes");
 const dataPrivacyRoutes = require("./routes/dataPrivacy.routes");
@@ -41,6 +42,16 @@ const {
 } = require("./jobs/calendarReminderCron");
 
 const app = express();
+app.disable("x-powered-by");
+
+app.use(
+  helmet({
+    // Frontend aur backend different domains par ho sakte hain.
+    crossOriginResourcePolicy: {
+      policy: "cross-origin",
+    },
+  })
+);
 
 function normalizeOrigin(origin) {
   return String(origin || "").trim().replace(/\/$/, "");
@@ -70,6 +81,16 @@ function getAllowedOrigins() {
 }
 
 const allowedOrigins = getAllowedOrigins();
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 120, // Per IP maximum 120 API requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+
+  message: {
+    message: "Too many requests. Please try again after a minute.",
+  },
+});
 
 app.use(
   cors({
@@ -105,11 +126,23 @@ app.use((req, res, next) => {
   return next();
 });
 
+// app.post(
+//   "/api/payments/razorpay/webhook",
+//   express.raw({ type: "application/json" }),
+//   razorpayWebhook
+// );
+
+// app.use(express.json());
+
 app.post(
   "/api/payments/razorpay/webhook",
   express.raw({ type: "application/json" }),
   razorpayWebhook
 );
+
+// Razorpay webhook ke baad lagaya hai,
+// taki payment callback global limiter se block na ho.
+app.use("/api", apiLimiter);
 
 app.use(express.json());
 

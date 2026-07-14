@@ -9,6 +9,11 @@ const {
 } = require("firebase-admin/auth");
 
 const {
+  getFirestore,
+  FieldValue,
+} = require("firebase-admin/firestore");
+
+const {
   getFirebaseServiceAccount,
 } = require("./env.validation");
 
@@ -22,11 +27,16 @@ const firebaseApp =
   });
 
 const firebaseAuth = getAuth(firebaseApp);
+const firebaseFirestore = getFirestore(firebaseApp);
 
-// Compatibility wrapper:
-// Existing admin.auth().verifyIdToken() and admin.auth().getUser()
-// code ko change karne ki zarurat nahi padegi.
+function firestore() {
+  return firebaseFirestore;
+}
+
+firestore.FieldValue = FieldValue;
+
 module.exports = {
   app: () => firebaseApp,
   auth: () => firebaseAuth,
+  firestore,
 };
