@@ -82,8 +82,13 @@ function getAllowedOrigins() {
 
 const allowedOrigins = getAllowedOrigins();
 const apiLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  limit: 120, // Per IP maximum 120 API requests per minute
+  windowMs: 60 * 1000,
+
+  // Global IP protection only.
+  // Same Wi-Fi par multiple users hone par problem na ho,
+  // isliye limit high rakhi hai.
+  limit: 1000,
+
   standardHeaders: true,
   legacyHeaders: false,
 

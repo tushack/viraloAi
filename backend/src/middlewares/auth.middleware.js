@@ -1,4 +1,21 @@
 const admin = require("../config/firebaseAdmin");
+const { rateLimit } = require("express-rate-limit");
+const authenticatedUserLimiter = rateLimit({
+  windowMs: 60 * 1000,
+
+  // Har Firebase user ki separate limit.
+  limit: 120,
+
+  standardHeaders: true,
+  legacyHeaders: false,
+
+  keyGenerator: (req) => req.user.uid,
+
+  message: {
+    message:
+      "You are making too many requests. Please try again after a minute.",
+  },
+});
 
 async function requireFirebaseAuth(req, res, next) {
   try {
@@ -34,7 +51,7 @@ async function requireFirebaseAuth(req, res, next) {
         decodedToken.role === "owner",
     };
 
-    next();
+    return authenticatedUserLimiter(req, res, next);
   } catch (error) {
     console.error("Firebase auth error:", error);
 
