@@ -1,4 +1,11 @@
-const admin = require("firebase-admin");
+const adminModule = require("firebase-admin");
+const admin = adminModule.default || adminModule;
+
+const {
+  getApps,
+  initializeApp,
+  cert,
+} = require("firebase-admin/app");
 
 const {
   getFirebaseServiceAccount,
@@ -6,9 +13,9 @@ const {
 
 const serviceAccount = getFirebaseServiceAccount();
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+if (!getApps().length) {
+  initializeApp({
+    credential: cert(serviceAccount),
     projectId: serviceAccount.project_id,
   });
 }

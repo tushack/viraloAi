@@ -298,23 +298,49 @@ function getThumbnailMimeType(contentType) {
 }
 
 function getAllowedThumbnailHosts() {
-  const raw = cleanString(
-    process.env.YOUTUBE_THUMBNAIL_ALLOWED_HOSTS || "res.cloudinary.com",
+  const defaultHosts = ["res.cloudinary.com", "youtube.com", "ytimg.com"];
+  const configuredHosts = cleanString(
+    process.env.YOUTUBE_THUMBNAIL_ALLOWED_HOSTS,
     3000
-  );
+  )
+    .split(",")
+    .map((host) =>
+      host
+        .trim()
+        .toLowerCase()
+        .replace(/^\*\./, "")
+        .replace(/^\.+|\.+$/g, "")
+    )
+    .filter(
+      (host) =>
+        host &&
+        host.includes(".") &&
+        !host.includes("/") &&
+        !net.isIP(host) &&
+        host !== "localhost" &&
+        !host.endsWith(".localhost")
+    );
 
-  return new Set(
-    raw
-      .split(",")
-      .map((host) => host.trim().toLowerCase().replace(/^\.+/, ""))
-      .filter(Boolean)
-  );
+  return new Set([...defaultHosts, ...configuredHosts]);
+}
+
+function normalizeIpAddress(address) {
+  return String(address || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .split("%")[0];
 }
 
 function isAllowedThumbnailHost(hostname) {
   const host = String(hostname || "").toLowerCase().replace(/\.$/, "");
 
-  if (!host || host === "localhost" || host.endsWith(".localhost")) {
+  if (
+    !host ||
+    net.isIP(normalizeIpAddress(host)) ||
+    host === "localhost" ||
+    host.endsWith(".localhost")
+  ) {
     return false;
   }
 
@@ -327,15 +353,39 @@ function isAllowedThumbnailHost(hostname) {
   return false;
 }
 
-function isBlockedIpAddress(address) {
-  const family = net.isIP(address);
-  const value = String(address || "").toLowerCase();
+function getMappedIpv4Address(value) {
+  if (!value.startsWith("::ffff:")) return "";
 
-  if (!family) return true;
+  const tail = value.slice("::ffff:".length);
+  if (net.isIP(tail) === 4) return tail;
+
+  const parts = tail.split(":");
+  if (
+    parts.length !== 2 ||
+    !parts.every((part) => /^[0-9a-f]{1,4}$/i.test(part))
+  ) {
+    return "";
+  }
+
+  const high = Number.parseInt(parts[0], 16);
+  const low = Number.parseInt(parts[1], 16);
+
+  return [
+    high >> 8,
+    high & 255,
+    low >> 8,
+    low & 255,
+  ].join(".");
+}
+
+function isBlockedIpAddress(address) {
+  const value = normalizeIpAddress(address);
+  const family = net.isIP(value);
+
+  if (!family) return false;
 
   if (family === 4) {
-    const parts = value.split(".").map(Number);
-    const [a, b] = parts;
+    const [a, b, c] = value.split(".").map(Number);
 
     return (
       a === 0 ||
@@ -345,22 +395,29 @@ function isBlockedIpAddress(address) {
       (a === 100 && b >= 64 && b <= 127) ||
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && (b === 0 || b === 168)) ||
-      (a === 198 && (b === 18 || b === 19 || b === 51)) ||
-      (a === 203 && b === 0)
+      (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+      (a === 192 && b === 88 && c === 99) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113)
     );
   }
+
+  const mappedIpv4 = getMappedIpv4Address(value);
+  if (mappedIpv4) return isBlockedIpAddress(mappedIpv4);
+
+  const firstHextet = Number.parseInt(value.split(":")[0] || "0", 16);
 
   return (
     value === "::" ||
     value === "::1" ||
-    value.startsWith("fc") ||
-    value.startsWith("fd") ||
-    value.startsWith("fe80:") ||
-    value.startsWith("::ffff:127.") ||
-    value.startsWith("::ffff:10.") ||
-    value.startsWith("::ffff:192.168.") ||
-    value.startsWith("::ffff:169.254.")
+    (firstHextet & 0xfe00) === 0xfc00 ||
+    (firstHextet & 0xffc0) === 0xfe80 ||
+    (firstHextet & 0xffc0) === 0xfec0 ||
+    (firstHextet & 0xff00) === 0xff00 ||
+    value === "2001:db8::" ||
+    value.startsWith("2001:db8:")
   );
 }
 
@@ -369,17 +426,26 @@ async function assertSafeThumbnailUrl(url) {
     throw createHttpError("Thumbnail URL must use HTTPS.", 400);
   }
 
+  if (url.username || url.password) {
+    throw createHttpError("Thumbnail URL cannot contain credentials.", 400);
+  }
+
+  if (url.port && url.port !== "443") {
+    throw createHttpError("Thumbnail URL must use the standard HTTPS port.", 400);
+  }
+
   const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+  const normalizedHostname = normalizeIpAddress(hostname);
+
+  if (net.isIP(normalizedHostname)) {
+    throw createHttpError("Thumbnail URL cannot point to an IP address.", 400);
+  }
 
   if (!isAllowedThumbnailHost(hostname)) {
     throw createHttpError(
       "Thumbnail URL host is not allowed. Use a thumbnail from the approved image storage host.",
       400
     );
-  }
-
-  if (net.isIP(hostname) || isBlockedIpAddress(hostname)) {
-    throw createHttpError("Thumbnail URL cannot point to an IP address.", 400);
   }
 
   let addresses;
@@ -389,7 +455,14 @@ async function assertSafeThumbnailUrl(url) {
     throw createHttpError("Thumbnail host could not be resolved.", 400);
   }
 
-  if (!addresses.length || addresses.some((item) => isBlockedIpAddress(item.address))) {
+  if (
+    !addresses.length ||
+    addresses.some(
+      (item) =>
+        !net.isIP(normalizeIpAddress(item.address)) ||
+        isBlockedIpAddress(item.address)
+    )
+  ) {
     throw createHttpError("Thumbnail URL resolves to a blocked network address.", 400);
   }
 }

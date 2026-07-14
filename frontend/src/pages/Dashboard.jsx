@@ -27,6 +27,7 @@ import {
   createContentPack,
   getDailyNicheIdeas,
   getResearchHistory,
+  getTopYouTubeChannels,
   getSavedIdeas,
   getTrendFeed,
   saveIdea,
@@ -230,42 +231,42 @@ function buildDashboardStats({ activeData, history, savedIdeasCount }) {
   };
 }
 
-function buildDashboardCompetitorsFromResearch(activeData, activeNiche) {
-  const directCompetitors = getList(activeData?.competitors);
+function buildDashboardCompetitorsFromResearch(activeData) {
+  return getList(activeData?.competitors)
+    .map((item) => {
+      const channelId = getTextValue(item?.channelId, "").trim();
+      const channelUrl =
+        getTextValue(
+          item?.channelUrl || item?.sourceUrl || item?.url,
+          ""
+        ).trim() ||
+        (channelId
+          ? `https://www.youtube.com/channel/${channelId}`
+          : "");
 
-  if (directCompetitors.length > 0) {
-    return directCompetitors.slice(0, 4);
-  }
+      return {
+        ...item,
+        channelUrl,
+      };
+    })
+    .filter((item) => {
+      const channelName = getTextValue(
+        item?.channelTitle ||
+          item?.channelName ||
+          item?.name ||
+          item?.channel,
+        ""
+      ).trim();
+      const normalizedUrl = item.channelUrl.toLowerCase();
+      const isYoutubeChannel =
+        normalizedUrl.includes("youtube.com/channel/") ||
+        normalizedUrl.includes("youtube.com/@") ||
+        normalizedUrl.includes("youtube.com/c/") ||
+        normalizedUrl.includes("youtube.com/user/");
 
-  const topics = getList(activeData?.trendingTopics).slice(0, 4);
-
-  return topics.map((item, index) => {
-    const topicText = getTextValue(
-      item?.topic || item?.title,
-      `Competitor signal ${index + 1}`
-    );
-
-    return {
-      channel:
-        getTextValue(item?.sourceChannel || item?.channel, "") ||
-        `${activeNiche} Signal ${index + 1}`,
-      channelName:
-        getTextValue(item?.sourceChannel || item?.channel, "") ||
-        `${activeNiche} Signal ${index + 1}`,
-      score: getTextValue(
-        item?.score || item?.aiFit || item?.opportunityScore,
-        `${85 - index * 7}`
-      ),
-      views: getTextValue(
-        item?.actualViews || item?.views || item?.averageViews,
-        "Scan based"
-      ),
-      growth: getTextValue(item?.growth || item?.momentum, "Growing"),
-      channelHandle: "Research scan",
-      channelUrl: getTextValue(item?.sourceUrl || item?.url, ""),
-      sourceUrl: getTextValue(item?.sourceUrl || item?.url, ""),
-    };
-  });
+      return Boolean(channelName && isYoutubeChannel);
+    })
+    .slice(0, 4);
 }
 
 function StatCard({ icon: Icon, label, value, caption }) {
@@ -786,10 +787,24 @@ export default function Dashboard() {
 
   const activeNiche = niche || latestScan?.niche || "your niche";
 
-  const competitorsToShow = buildDashboardCompetitorsFromResearch(
-    activeResearchData,
-    activeNiche
-  );
+  const competitorLookupNiche = getTextValue(
+    activeResearchData?.niche || latestScan?.niche,
+    ""
+  ).trim();
+  const competitorResearchKey =
+    activeResearchData?.meta?.generatedAt ||
+    latestScan?.id ||
+    latestScan?.created_at ||
+    competitorLookupNiche;
+  const researchCompetitors =
+    buildDashboardCompetitorsFromResearch(activeResearchData);
+  const competitorsToShow =
+    youtubeCompetitors.length > 0
+      ? youtubeCompetitors
+      : researchCompetitors;
+  const showCompetitorSection =
+    competitorsLoading ||
+    (!competitorsError && competitorsToShow.length > 0);
 
   const baseDashboardStats = buildDashboardStats({
     activeData: activeResearchData,
@@ -826,13 +841,48 @@ export default function Dashboard() {
         : "No scan yet";
 
   useEffect(() => {
-    // Dashboard competitor table will use competitors from current research data only.
-    // This avoids YouTube Search API quota errors.
-    // Sidebar Competitor Analysis remains untouched.
+    let isMounted = true;
+
     setYoutubeCompetitors([]);
-    setCompetitorsLoading(false);
     setCompetitorsError("");
-  }, [activeResearchData]);
+
+    if (!competitorLookupNiche || !competitorResearchKey) {
+      setCompetitorsLoading(false);
+      return undefined;
+    }
+
+    setCompetitorsLoading(true);
+
+    async function loadYoutubeCompetitors() {
+      try {
+        const response = await getTopYouTubeChannels({
+          niche: competitorLookupNiche,
+          limit: 4,
+        });
+
+        if (isMounted) {
+          setYoutubeCompetitors(getList(response?.channels));
+        }
+      } catch (error) {
+        if (isMounted) {
+          setYoutubeCompetitors([]);
+          setCompetitorsError(
+            error.message || "Failed to load YouTube channels."
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setCompetitorsLoading(false);
+        }
+      }
+    }
+
+    loadYoutubeCompetitors();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [competitorLookupNiche, competitorResearchKey]);
 
   const latestScanDate = formatDate(
     latestScan?.created_at || latestScan?.createdAt || activeResearchData?.meta?.generatedAt
@@ -1626,7 +1676,8 @@ export default function Dashboard() {
                 </section>
               </div>
 
-              <section className="mt-8">
+              {showCompetitorSection && (
+                <section className="mt-8">
                 <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
                   <div>
                     <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
@@ -1655,22 +1706,6 @@ export default function Dashboard() {
                     <CardContent className="flex min-h-[132px] items-center justify-center gap-3 p-6 text-sm text-zinc-300">
                       <Loader2 className="h-5 w-5 animate-spin text-cyan-300" />
                       Loading public YouTube channels...
-                    </CardContent>
-                  </Card>
-                )}
-
-                {!competitorsLoading && competitorsError && (
-                  <Card className="border-rose-300/20 bg-rose-300/[0.06]">
-                    <CardContent className="p-5 text-sm leading-6 text-rose-100">
-                      {competitorsError}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {!competitorsLoading && !competitorsError && !competitorsToShow.length && (
-                  <Card className="border-white/10 bg-white/[0.04]">
-                    <CardContent className="p-6 text-sm text-zinc-400">
-                      Run a fresh scan to generate topic-based competitor signals for this niche.
                     </CardContent>
                   </Card>
                 )}
@@ -1766,7 +1801,8 @@ export default function Dashboard() {
                     </CardContent>
                   </Card>
                 )}
-              </section>
+                </section>
+              )}
             </>
           )}
         </>
