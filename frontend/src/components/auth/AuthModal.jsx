@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  MailCheck,
+  RotateCcw,
+  X,
+} from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext";
 import { getPasswordPolicyError } from "../../lib/passwordPolicy";
@@ -17,6 +23,8 @@ function getAuthErrorMessage(error) {
     "auth/wrong-password": "Incorrect email or password.",
     "auth/too-many-requests":
       "Too many attempts. Please wait a moment and try again.",
+    "auth/network-request-failed":
+      "Network connection failed. Check your internet and try again.",
     "auth/popup-closed-by-user": "Google sign-in was cancelled.",
     "auth/popup-blocked":
       "Google sign-in popup was blocked. Please allow popups and try again.",
@@ -64,6 +72,7 @@ export default function AuthModal() {
     signInWithGoogle,
     createEmailPasswordAccount,
     signInWithEmailPassword,
+    sendPasswordResetEmailForAccount,
   } = useAuth();
 
   const [mode, setMode] = useState("signin");
@@ -71,9 +80,13 @@ export default function AuthModal() {
   const [emailLoading, setEmailLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
   const googlePopupActiveRef = useRef(false);
   const googleFocusTimerRef = useRef(null);
 
+  const isSignup = mode === "signup";
+  const isForgotPassword = mode === "forgot-password";
 
   useEffect(() => {
     if (!googleLoading) return undefined;
@@ -98,7 +111,10 @@ export default function AuthModal() {
     };
 
     window.addEventListener("focus", stopGoogleLoaderAfterFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
 
     return () => {
       if (googleFocusTimerRef.current) {
@@ -107,9 +123,13 @@ export default function AuthModal() {
       }
 
       window.removeEventListener("focus", stopGoogleLoaderAfterFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
     };
   }, [googleLoading]);
+
   if (!authModalOpen) return null;
 
   const updateField = (key, value) => {
@@ -117,21 +137,47 @@ export default function AuthModal() {
       ...current,
       [key]: value,
     }));
+
+    setError("");
+    setMessage("");
   };
 
-  const switchMode = (nextMode) => {
+  const switchMode = (nextMode, { preserveEmail = false } = {}) => {
+    const currentEmail = preserveEmail ? form.email : "";
+
     setMode(nextMode);
     setError("");
+    setMessage("");
+    setForm({
+      ...EMPTY_FORM,
+      email: currentEmail,
+    });
+  };
+
+  const closeModal = () => {
+    if (emailLoading || googleLoading) return;
+
+    setAuthModalOpen(false);
+    setMode("signin");
     setForm(EMPTY_FORM);
+    setError("");
+    setMessage("");
   };
 
   const handleGoogleSignIn = async () => {
-    if (emailLoading || googlePopupActiveRef.current) return;
+    if (
+      emailLoading ||
+      googlePopupActiveRef.current ||
+      isForgotPassword
+    ) {
+      return;
+    }
 
     try {
       googlePopupActiveRef.current = true;
       setGoogleLoading(true);
       setError("");
+      setMessage("");
 
       await signInWithGoogle();
     } catch (err) {
@@ -162,13 +208,38 @@ export default function AuthModal() {
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    try {
-      if (emailLoading || googleLoading) return;
+    if (emailLoading || googleLoading) return;
 
+    try {
       setEmailLoading(true);
       setError("");
+      setMessage("");
 
-      if (mode === "signup") {
+      if (isForgotPassword) {
+        if (!form.email.trim()) {
+          throw new Error("Email address is required.");
+        }
+
+        try {
+          await sendPasswordResetEmailForAccount(form.email);
+        } catch (resetError) {
+          /*
+           * Account existence should not be revealed. Firebase may return
+           * user-not-found when Email Enumeration Protection is not enabled.
+           */
+          if (String(resetError?.code || "") !== "auth/user-not-found") {
+            throw resetError;
+          }
+        }
+
+        setMessage(
+          "If an account exists for this email, a password reset link has been sent. Please check your inbox and spam folder."
+        );
+
+        return;
+      }
+
+      if (isSignup) {
         const passwordError = getPasswordPolicyError(form.password);
 
         if (!form.name.trim()) {
@@ -180,7 +251,9 @@ export default function AuthModal() {
         }
 
         if (form.password !== form.confirmPassword) {
-          throw new Error("Password and confirm password do not match.");
+          throw new Error(
+            "Password and confirm password do not match."
+          );
         }
 
         await createEmailPasswordAccount({
@@ -188,12 +261,14 @@ export default function AuthModal() {
           email: form.email,
           password: form.password,
         });
-      } else {
-        await signInWithEmailPassword({
-          email: form.email,
-          password: form.password,
-        });
+
+        return;
       }
+
+      await signInWithEmailPassword({
+        email: form.email,
+        password: form.password,
+      });
     } catch (err) {
       setError(getAuthErrorMessage(err));
     } finally {
@@ -201,199 +276,320 @@ export default function AuthModal() {
     }
   };
 
-  const isSignup = mode === "signup";
+  const headerTitle = isForgotPassword
+    ? "Reset your password"
+    : isSignup
+      ? "Create your account"
+      : "Welcome back";
+
+  const headerDescription = isForgotPassword
+    ? "Enter your registered email and we will send you a secure password reset link."
+    : isSignup
+      ? "Create your Viralo AI account using email and password."
+      : "Sign in with your email and password, or continue with Google.";
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0b0c11] p-6 shadow-2xl shadow-black/50">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/70 px-4 py-6 backdrop-blur-sm">
+      <div className="my-auto w-full max-w-md rounded-3xl border border-white/10 bg-[#0b0c11] p-5 shadow-2xl shadow-black/50 sm:p-6">
         <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
+            {isForgotPassword && (
+              <button
+                type="button"
+                onClick={() =>
+                  switchMode("signin", {
+                    preserveEmail: true,
+                  })
+                }
+                disabled={emailLoading}
+                className="mb-4 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500 transition hover:text-cyan-200 disabled:opacity-50"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to sign in
+              </button>
+            )}
+
             <h2 className="text-xl font-semibold text-white">
-              {isSignup ? "Create your account" : "Welcome back"}
+              {headerTitle}
             </h2>
 
             <p className="mt-2 text-sm leading-6 text-zinc-400">
-              {isSignup
-                ? "Create your Viralo AI account using email and password."
-                : "Sign in with your email and password, or continue with Google."}
+              {headerDescription}
             </p>
           </div>
 
           <button
             type="button"
-            onClick={() => setAuthModalOpen(false)}
-            className="rounded-xl border border-white/10 bg-white/[0.04] p-2 text-zinc-400 hover:bg-white/[0.08]"
+            onClick={closeModal}
+            disabled={emailLoading || googleLoading}
+            className="shrink-0 rounded-xl border border-white/10 bg-white/[0.04] p-2 text-zinc-400 transition hover:bg-white/[0.08] disabled:opacity-50"
             aria-label="Close authentication modal"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="mb-5 grid grid-cols-2 rounded-2xl border border-white/10 bg-white/[0.03] p-1">
-          <button
-            type="button"
-            onClick={() => switchMode("signin")}
-            className={`rounded-xl px-3 py-2 text-sm font-medium transition ${!isSignup
-              ? "bg-cyan-300 text-black"
-              : "text-zinc-400 hover:text-white"
+        {!isForgotPassword && (
+          <div className="mb-5 grid grid-cols-2 rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+            <button
+              type="button"
+              onClick={() => switchMode("signin")}
+              disabled={emailLoading || googleLoading}
+              className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
+                !isSignup
+                  ? "bg-cyan-300 text-black"
+                  : "text-zinc-400 hover:text-white"
               }`}
-          >
-            Sign in
-          </button>
+            >
+              Sign in
+            </button>
 
-          <button
-            type="button"
-            onClick={() => switchMode("signup")}
-            className={`rounded-xl px-3 py-2 text-sm font-medium transition ${isSignup
-              ? "bg-cyan-300 text-black"
-              : "text-zinc-400 hover:text-white"
+            <button
+              type="button"
+              onClick={() => switchMode("signup")}
+              disabled={emailLoading || googleLoading}
+              className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
+                isSignup
+                  ? "bg-cyan-300 text-black"
+                  : "text-zinc-400 hover:text-white"
               }`}
-          >
-            Create account
-          </button>
-        </div>
+            >
+              Create account
+            </button>
+          </div>
+        )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {isSignup && (
-            <label className="block">
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                User name
-              </span>
-
-              <input
-                value={form.name}
-                onChange={(event) => updateField("name", event.target.value)}
-                placeholder="Your full name"
-                autoComplete="name"
-                maxLength={80}
-                className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
-              />
-            </label>
-          )}
-
-          <label className="block">
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Email
+        {isForgotPassword && message ? (
+          <div className="rounded-3xl border border-emerald-300/15 bg-emerald-300/[0.055] p-5 text-center">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-300/10 text-emerald-200">
+              <MailCheck className="h-7 w-7" />
             </span>
 
-            <input
-              type="email"
-              value={form.email}
-              onChange={(event) => updateField("email", event.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
-            />
-          </label>
+            <h3 className="mt-4 text-base font-semibold text-white">
+              Check your email
+            </h3>
 
-          <label className="block">
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Password
-            </span>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">
+              {message}
+            </p>
 
-            <input
-              type="password"
-              value={form.password}
-              onChange={(event) => updateField("password", event.target.value)}
-              placeholder="12–24 letters and numbers"
-              autoComplete={isSignup ? "new-password" : "current-password"}
-              minLength={12}
-              maxLength={24}
-              className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
-            />
-          </label>
+            <button
+              type="button"
+              onClick={() => {
+                setMessage("");
+                setError("");
+              }}
+              className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-5 text-sm font-semibold text-zinc-200 transition hover:bg-white/[0.08]"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Send again
+            </button>
 
-          {isSignup && (
-            <>
+            <button
+              type="button"
+              onClick={() =>
+                switchMode("signin", {
+                  preserveEmail: true,
+                })
+              }
+              className="mt-3 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-cyan-300 px-5 text-sm font-semibold text-black transition hover:bg-cyan-200"
+            >
+              Back to sign in
+            </button>
+          </div>
+        ) : (
+          <>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {isSignup && (
+                <label className="block">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    User name
+                  </span>
+
+                  <input
+                    value={form.name}
+                    onChange={(event) =>
+                      updateField("name", event.target.value)
+                    }
+                    placeholder="Your full name"
+                    autoComplete="name"
+                    maxLength={80}
+                    className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
+                  />
+                </label>
+              )}
+
               <label className="block">
                 <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Confirm password
+                  Email
                 </span>
 
                 <input
-                  type="password"
-                  value={form.confirmPassword}
+                  type="email"
+                  value={form.email}
                   onChange={(event) =>
-                    updateField("confirmPassword", event.target.value)
+                    updateField("email", event.target.value)
                   }
-                  placeholder="Re-enter your password"
-                  autoComplete="new-password"
-                  minLength={12}
-                  maxLength={24}
+                  placeholder="you@example.com"
+                  autoComplete="email"
                   className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
                 />
               </label>
 
-              <p className="text-xs leading-5 text-zinc-500">
-                Password must be 12–24 characters, contain only letters and
-                numbers, and include at least one letter and one number.
-              </p>
-            </>
-          )}
+              {!isForgotPassword && (
+                <label className="block">
+                  <span className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Password
+                    </span>
 
-          <Button
-            type="submit"
-            disabled={emailLoading || googleLoading}
-            className="h-12 w-full rounded-2xl bg-cyan-300 px-5 text-sm font-semibold text-black hover:bg-cyan-200"
-          >
-            {emailLoading ? (
+                    {!isSignup && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          switchMode("forgot-password", {
+                            preserveEmail: true,
+                          })
+                        }
+                        className="text-xs font-semibold text-cyan-300 transition hover:text-cyan-200"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </span>
+
+                  <input
+                    type="password"
+                    value={form.password}
+                    onChange={(event) =>
+                      updateField("password", event.target.value)
+                    }
+                    placeholder="12–24 letters and numbers"
+                    autoComplete={
+                      isSignup
+                        ? "new-password"
+                        : "current-password"
+                    }
+                    minLength={12}
+                    maxLength={24}
+                    className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
+                  />
+                </label>
+              )}
+
+              {isSignup && (
+                <>
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Confirm password
+                    </span>
+
+                    <input
+                      type="password"
+                      value={form.confirmPassword}
+                      onChange={(event) =>
+                        updateField(
+                          "confirmPassword",
+                          event.target.value
+                        )
+                      }
+                      placeholder="Re-enter your password"
+                      autoComplete="new-password"
+                      minLength={12}
+                      maxLength={24}
+                      className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
+                    />
+                  </label>
+
+                  <p className="text-xs leading-5 text-zinc-500">
+                    Password must be 12–24 characters, contain only
+                    letters and numbers, and include at least one
+                    letter and one number.
+                  </p>
+                </>
+              )}
+
+              <Button
+                type="submit"
+                disabled={emailLoading || googleLoading}
+                className="h-12 w-full rounded-2xl bg-cyan-300 px-5 text-sm font-semibold text-black hover:bg-cyan-200"
+              >
+                {emailLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {isForgotPassword
+                      ? "Sending reset link..."
+                      : "Please wait..."}
+                  </>
+                ) : isForgotPassword ? (
+                  "Send password reset link"
+                ) : isSignup ? (
+                  "Create account"
+                ) : (
+                  "Sign in"
+                )}
+              </Button>
+            </form>
+
+            {!isForgotPassword && (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Please wait...
+                <div className="my-5 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-white/10" />
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-600">
+                    Or
+                  </span>
+                  <div className="h-px flex-1 bg-white/10" />
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  disabled={emailLoading || googleLoading}
+                  className="h-12 w-full rounded-2xl bg-white px-5 text-sm font-semibold text-black hover:bg-zinc-200"
+                >
+                  {googleLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Signing in...
+                    </>
+                  ) : (
+                    <>
+                      <GoogleIcon className="h-4 w-4" />
+                      Continue with Google
+                    </>
+                  )}
+                </Button>
               </>
-            ) : isSignup ? (
-              "Create account"
-            ) : (
-              "Sign in"
             )}
-          </Button>
-        </form>
 
-        <div className="my-5 flex items-center gap-3">
-          <div className="h-px flex-1 bg-white/10" />
-          <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-600">
-            Or
-          </span>
-          <div className="h-px flex-1 bg-white/10" />
-        </div>
+            {error && (
+              <p className="mt-4 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm leading-6 text-red-200">
+                {error}
+              </p>
+            )}
 
-        <Button
-          type="button"
-          onClick={handleGoogleSignIn}
-          disabled={emailLoading || googleLoading}
-          className="h-12 w-full rounded-2xl bg-white px-5 text-sm font-semibold text-black hover:bg-zinc-200"
-        >
-          {googleLoading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Signing in...
-            </>
-          ) : (
-            <>
-              <GoogleIcon className="h-4 w-4" />
-              Continue with Google
-            </>
-          )}
-        </Button>
-
-        {error && (
-          <p className="mt-4 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm leading-6 text-red-200">
-            {error}
-          </p>
+            {!isForgotPassword && (
+              <p className="mt-5 text-center text-xs leading-5 text-zinc-500">
+                {isSignup
+                  ? "Already have an account?"
+                  : "New to Viralo AI?"}{" "}
+                <button
+                  type="button"
+                  onClick={() =>
+                    switchMode(
+                      isSignup ? "signin" : "signup"
+                    )
+                  }
+                  className="font-semibold text-cyan-300 hover:text-cyan-200"
+                >
+                  {isSignup
+                    ? "Sign in"
+                    : "Create an account"}
+                </button>
+              </p>
+            )}
+          </>
         )}
-
-        <p className="mt-5 text-center text-xs leading-5 text-zinc-500">
-          {isSignup
-            ? "Already have an account?"
-            : "New to Viralo AI?"}{" "}
-          <button
-            type="button"
-            onClick={() => switchMode(isSignup ? "signin" : "signup")}
-            className="font-semibold text-cyan-300 hover:text-cyan-200"
-          >
-            {isSignup ? "Sign in" : "Create an account"}
-          </button>
-        </p>
       </div>
     </div>
   );

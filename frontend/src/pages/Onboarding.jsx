@@ -11,6 +11,7 @@ import {
   Gauge,
   GraduationCap,
   Lightbulb,
+  Loader2,
   Megaphone,
   Play,
   Rocket,
@@ -24,6 +25,8 @@ import { useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
+import { getDailyNicheIdeas } from "../lib/api";
+import { saveOnboardingProfile } from "../lib/profileStore";
 
 const ONBOARDING_STEPS = [
   {
@@ -52,6 +55,12 @@ const ONBOARDING_STEPS = [
     subtitle: "Review and finish",
   },
 ];
+
+const DASHBOARD_PLATFORM_MAP = {
+  youtube: "YouTube",
+  shorts: "YouTube Shorts",
+  both: "YouTube",
+};
 
 const CREATOR_TYPES = [
   {
@@ -296,6 +305,7 @@ export default function Onboarding() {
   const [goals, setGoals] = useState([]);
   const [channelUrl, setChannelUrl] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const currentStep = ONBOARDING_STEPS[stepIndex];
   const progress = ((stepIndex + 1) / ONBOARDING_STEPS.length) * 100;
@@ -385,31 +395,113 @@ export default function Onboarding() {
     );
   };
 
-  const completeOnboarding = () => {
+  const completeOnboarding = async () => {
+    if (saving) return;
+
+    const defaultPlatform =
+      DASHBOARD_PLATFORM_MAP[platform] || "YouTube";
+    const defaultAudience = "New creators";
+    const completedAt = new Date().toISOString();
+
     const onboardingProfile = {
       creatorType,
       niche: finalNiche,
-      platform,
+      creatorNiche: finalNiche,
+      platform: defaultPlatform,
+      platformPreference: platform,
+      audience: defaultAudience,
+      defaultPlatform,
+      defaultAudience,
       goals,
+      creatorGoals: goals,
       channelUrl: channelUrl.trim(),
-      completedAt: new Date().toISOString(),
+      youtubeChannelUrl: channelUrl.trim(),
+      onboardingCompleted: true,
+      completedAt,
     };
 
-    const userKey = user.uid;
+    try {
+      setSaving(true);
+      setError("");
 
-    localStorage.setItem(
-      `viraloCreatorProfile:${userKey}`,
-      JSON.stringify(onboardingProfile)
-    );
+      await saveOnboardingProfile({
+        userId: user.uid,
+        creatorType,
+        creatorNiche: finalNiche,
+        platformPreference: platform,
+        defaultPlatform,
+        defaultAudience,
+        creatorGoals: goals,
+        youtubeChannelUrl: channelUrl.trim(),
+      });
 
-    localStorage.setItem(`viraloOnboardingCompleted:${userKey}`, "true");
+      localStorage.setItem(
+        `viraloCreatorProfile:${user.uid}`,
+        JSON.stringify(onboardingProfile)
+      );
+      localStorage.setItem(
+        `viraloOnboardingCompleted:${user.uid}`,
+        "true"
+      );
 
-    navigate("/dashboard", {
-      replace: true,
-      state: {
-        onboardingProfile,
-      },
-    });
+      // Generate the first dashboard research using the niche selected here.
+      // If the request fails, we still pass the selected niche to Dashboard so
+      // the search field is correctly prefilled and the user can retry there.
+      let firstResearchData = null;
+
+      try {
+        firstResearchData = await getDailyNicheIdeas({
+          niche: finalNiche,
+          platform: defaultPlatform,
+          audience: defaultAudience,
+          limit: 5,
+          forceRefresh: false,
+        });
+      } catch (researchError) {
+        console.error("First onboarding research failed:", researchError);
+      }
+
+      const firstScan = {
+        id: `onboarding-${completedAt}`,
+        niche: finalNiche,
+        platform: defaultPlatform,
+        audience: defaultAudience,
+        response_json: firstResearchData,
+        created_at: completedAt,
+      };
+
+      const dashboardCache = {
+        niche: finalNiche,
+        platform: defaultPlatform,
+        audience: defaultAudience,
+        data: firstResearchData,
+        createdAt: completedAt,
+      };
+
+      localStorage.setItem(
+        `viralMindCurrentResearch:${user.uid}`,
+        JSON.stringify(dashboardCache)
+      );
+      localStorage.setItem(
+        "viralMindCurrentResearch",
+        JSON.stringify(dashboardCache)
+      );
+
+      navigate("/dashboard", {
+        replace: true,
+        state: {
+          onboardingProfile,
+          historyScan: firstScan,
+        },
+      });
+    } catch (requestError) {
+      setError(
+        requestError.message ||
+          "Could not save your creator setup. Please try again."
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -832,12 +924,22 @@ export default function Onboarding() {
                       <motion.button
                         type="button"
                         onClick={completeOnboarding}
-                        whileHover={{ y: -2 }}
-                        whileTap={{ scale: 0.985 }}
-                        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-300 via-blue-400 to-violet-500 px-6 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-950/30"
+                        disabled={saving}
+                        whileHover={saving ? undefined : { y: -2 }}
+                        whileTap={saving ? undefined : { scale: 0.985 }}
+                        className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-300 via-blue-400 to-violet-500 px-6 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-950/30 disabled:cursor-wait disabled:opacity-70"
                       >
-                        Open my dashboard
-                        <ArrowRight className="h-4 w-4" />
+                        {saving ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Personalizing dashboard...
+                          </>
+                        ) : (
+                          <>
+                            Open my dashboard
+                            <ArrowRight className="h-4 w-4" />
+                          </>
+                        )}
                       </motion.button>
                     ) : (
                       <motion.button

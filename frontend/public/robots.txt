@@ -1,0 +1,24 @@
+User-agent: *
+Allow: /
+
+Disallow: /verify-email
+Disallow: /onboarding
+Disallow: /dashboard
+Disallow: /fresh-topics
+Disallow: /trends
+Disallow: /competitors
+Disallow: /saved-ideas
+Disallow: /history
+Disallow: /settings
+Disallow: /data-privacy
+Disallow: /payment
+Disallow: /checkout
+Disallow: /content-pack
+Disallow: /saved-thumbnails
+Disallow: /profile
+Disallow: /viral-check
+Disallow: /media-export
+Disallow: /admin
+Disallow: /api/
+
+Sitemap: https://viraloai.com/sitemap.xml

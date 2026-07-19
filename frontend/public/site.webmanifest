@@ -1,0 +1,19 @@
+{
+  "name": "Viralo AI – Creator Intelligence",
+  "short_name": "Viralo AI",
+  "description": "AI-assisted content research, trend discovery, competitor analysis, and creator workflow planning.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#050711",
+  "theme_color": "#050711",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
   reauthenticateWithCredential,
   sendEmailVerification,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
@@ -41,6 +42,16 @@ function createClientError(message, code = "app/auth-error") {
   return error;
 }
 
+function getEmailVerificationSettings() {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  return {
+    url: `${window.location.origin}/verify-email`,
+  };
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -68,10 +79,12 @@ export function AuthProvider({ children }) {
   const signInWithGoogle = async () => {
     const result = await signInWithPopup(auth, googleProvider);
 
-    applyUser(result.user);
+    await result.user.reload();
+
+    applyUser(auth.currentUser || result.user);
     setAuthModalOpen(false);
 
-    return result.user;
+    return auth.currentUser || result.user;
   };
 
   const createEmailPasswordAccount = async ({
@@ -107,7 +120,10 @@ export function AuthProvider({ children }) {
       displayName: cleanUserName,
     });
 
-    await sendEmailVerification(result.user);
+    await sendEmailVerification(
+      result.user,
+      getEmailVerificationSettings()
+    );
 
     await result.user.reload();
 
@@ -130,10 +146,36 @@ export function AuthProvider({ children }) {
       password
     );
 
-    applyUser(result.user);
+    await result.user.reload();
+
+    applyUser(auth.currentUser || result.user);
     setAuthModalOpen(false);
 
-    return result.user;
+    return auth.currentUser || result.user;
+  };
+
+
+  const sendPasswordResetEmailForAccount = async (email) => {
+    const cleanUserEmail = cleanEmail(email);
+
+    if (!cleanUserEmail) {
+      throw createClientError("Email address is required.");
+    }
+
+    const actionCodeSettings =
+      typeof window !== "undefined"
+        ? {
+            url: `${window.location.origin}/`,
+          }
+        : undefined;
+
+    await sendPasswordResetEmail(
+      auth,
+      cleanUserEmail,
+      actionCodeSettings
+    );
+
+    return true;
   };
 
   const sendVerificationEmailForCurrentUser = async () => {
@@ -143,13 +185,19 @@ export function AuthProvider({ children }) {
       throw createClientError("Account email is required.");
     }
 
-    if (currentUser.emailVerified) {
-      return currentUser;
+    await currentUser.reload();
+
+    if (auth.currentUser?.emailVerified) {
+      applyUser(auth.currentUser);
+      return auth.currentUser;
     }
 
-    await sendEmailVerification(currentUser);
+    await sendEmailVerification(
+      auth.currentUser || currentUser,
+      getEmailVerificationSettings()
+    );
 
-    return currentUser;
+    return auth.currentUser || currentUser;
   };
 
   const refreshCurrentUser = async () => {
@@ -167,7 +215,6 @@ export function AuthProvider({ children }) {
     return auth.currentUser || currentUser;
   };
 
-  // Google login user ke liye password login enable karega.
   const addPasswordToCurrentAccount = async ({ password }) => {
     const currentUser = auth.currentUser;
     const passwordError = getPasswordPolicyError(password);
@@ -202,7 +249,6 @@ export function AuthProvider({ children }) {
     return auth.currentUser || result.user;
   };
 
-  // Existing password user ke liye password change karega.
   const changePasswordForCurrentAccount = async ({
     currentPassword,
     newPassword,
@@ -241,9 +287,7 @@ export function AuthProvider({ children }) {
     );
 
     await reauthenticateWithCredential(currentUser, credential);
-
     await updatePassword(currentUser, newPassword);
-
     await currentUser.reload();
 
     applyUser(auth.currentUser || currentUser);
@@ -251,7 +295,6 @@ export function AuthProvider({ children }) {
     return auth.currentUser || currentUser;
   };
 
-  // Email/password user ke same account me Google sign-in connect karega.
   const connectGoogleToCurrentAccount = async () => {
     const currentUser = auth.currentUser;
 
@@ -285,6 +328,10 @@ export function AuthProvider({ children }) {
       return false;
     }
 
+    if (!user.emailVerified) {
+      return false;
+    }
+
     return true;
   };
 
@@ -300,6 +347,7 @@ export function AuthProvider({ children }) {
         signInWithGoogle,
         createEmailPasswordAccount,
         signInWithEmailPassword,
+        sendPasswordResetEmailForAccount,
         sendVerificationEmailForCurrentUser,
         refreshCurrentUser,
         addPasswordToCurrentAccount,

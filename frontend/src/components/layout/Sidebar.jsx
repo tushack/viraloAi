@@ -2,31 +2,36 @@
 
 import { useEffect, useRef, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { getPaymentAccess } from "../../lib/paymentApi";
+import { doc, onSnapshot } from "firebase/firestore";
 import {
   Bookmark,
-  Clock,
   CircleHelp,
+  Clock,
   CreditCard,
+  Download,
   Gauge,
   LayoutDashboard,
   LogOut,
   MoreVertical,
   PanelLeftClose,
   Settings,
+  ShieldCheck,
   Sparkles,
   TrendingUp,
   UserRound,
   Users,
-  Download,
-  ShieldCheck,
   X,
 } from "lucide-react";
-import { doc, onSnapshot } from "firebase/firestore";
 
 import { Button } from "../ui/button";
 import { useAuth } from "../../context/AuthContext";
 import { db } from "../../lib/firebase";
+import { getPaymentAccess } from "../../lib/paymentApi";
+import {
+  publishPlanAccess,
+  readCachedActivePlan,
+  subscribeToPlanAccess,
+} from "../../lib/planAccessCache";
 
 const publicNavItems = [];
 
@@ -84,7 +89,14 @@ export default function Sidebar({
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
+
+  /*
+   * Never default the plan to "free".
+   * An active cached Pro/Admin access can render immediately.
+   * Otherwise the plan badge stays hidden until the server responds.
+   */
   const [planAccess, setPlanAccess] = useState(null);
+  const [planResolved, setPlanResolved] = useState(false);
 
   const accountMenuRef = useRef(null);
   const navigate = useNavigate();
@@ -98,22 +110,24 @@ export default function Sidebar({
 
   const showAdminNav = Boolean(
     user?.email &&
-    configuredAdminEmails.includes(String(user.email).trim().toLowerCase())
+      configuredAdminEmails.includes(
+        String(user.email).trim().toLowerCase()
+      )
   );
 
   const navItems = user
     ? [
-      ...privateNavItems,
-      ...(showAdminNav
-        ? [
-          {
-            label: "Admin Panel",
-            icon: ShieldCheck,
-            path: "/admin",
-          },
-        ]
-        : []),
-    ]
+        ...privateNavItems,
+        ...(showAdminNav
+          ? [
+              {
+                label: "Admin Panel",
+                icon: ShieldCheck,
+                path: "/admin",
+              },
+            ]
+          : []),
+      ]
     : publicNavItems;
 
   useEffect(() => {
@@ -125,7 +139,9 @@ export default function Sidebar({
     const unsubscribe = onSnapshot(
       doc(db, "app_users", user.uid),
       (snapshot) => {
-        setUserProfile(snapshot.exists() ? snapshot.data() : null);
+        setUserProfile(
+          snapshot.exists() ? snapshot.data() : null
+        );
       },
       () => {
         setUserProfile(null);
@@ -150,32 +166,72 @@ export default function Sidebar({
     document.addEventListener("mousedown", handleClickOutside);
 
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
     };
   }, [accountMenuOpen]);
 
   useEffect(() => {
     let active = true;
+    const userId = user?.uid || "";
 
-    if (!user?.uid) {
+    if (!userId) {
       setPlanAccess(null);
+      setPlanResolved(false);
       return undefined;
     }
 
+    const cachedAccess = readCachedActivePlan(userId);
+
+    if (cachedAccess) {
+      setPlanAccess(cachedAccess);
+      setPlanResolved(true);
+    } else {
+      setPlanAccess(null);
+      setPlanResolved(false);
+    }
+
+    const unsubscribePlanUpdates = subscribeToPlanAccess(
+      ({ userId: updatedUserId, access }) => {
+        if (
+          active &&
+          String(updatedUserId || "") === String(userId)
+        ) {
+          setPlanAccess(access || null);
+          setPlanResolved(Boolean(access));
+        }
+      }
+    );
+
     getPaymentAccess()
       .then((response) => {
-        if (active) {
-          setPlanAccess(response?.access || null);
-        }
+        if (!active) return;
+
+        const nextAccess = response?.access || null;
+
+        setPlanAccess(nextAccess);
+        setPlanResolved(Boolean(nextAccess));
+        publishPlanAccess(userId, nextAccess);
       })
       .catch(() => {
-        if (active) {
+        if (!active) return;
+
+        /*
+         * When the request fails and no valid paid cache exists,
+         * keep the plan unresolved. Showing "Free" here would be a
+         * false value and causes the Free -> Pro flicker.
+         */
+        if (!cachedAccess) {
           setPlanAccess(null);
+          setPlanResolved(false);
         }
       });
 
     return () => {
       active = false;
+      unsubscribePlanUpdates();
     };
   }, [user?.uid]);
 
@@ -187,7 +243,8 @@ export default function Sidebar({
     user?.email?.split("@")[0] ||
     "Creator";
 
-  const displayEmail = userProfile?.email || user?.email || "";
+  const displayEmail =
+    userProfile?.email || user?.email || "";
 
   const displayPhoto =
     userProfile?.photoURL ||
@@ -197,24 +254,29 @@ export default function Sidebar({
     user?.photoURL ||
     "";
 
-  const displayPlan =
-    planAccess?.plan ||
-    userProfile?.plan ||
-    userProfile?.subscription_plan ||
-    userProfile?.subscriptionPlan ||
-    "free";
+  const displayPlan = String(
+    planAccess?.plan || ""
+  )
+    .trim()
+    .toLowerCase();
 
   const displayPlanLabel =
     displayPlan === "pro"
       ? "Pro"
       : displayPlan === "admin"
         ? "Admin"
-        : "Free";
+        : displayPlan === "free"
+          ? "Free"
+          : "";
 
-  const hasFullAccess = planAccess?.isPaid === true;
+  const hasFullAccess =
+    planResolved && planAccess?.isPaid === true;
 
   const handleToggleSidebarCollapse = () => {
-    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+    if (
+      typeof window !== "undefined" &&
+      window.innerWidth < 1024
+    ) {
       return;
     }
 
@@ -243,12 +305,20 @@ export default function Sidebar({
   return (
     <>
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-white/10 bg-[#070910]/95 p-4 backdrop-blur-2xl sm:p-5 lg:translate-x-0 ${sidebarCollapsed ? "lg:w-24" : "lg:w-72"
-          } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-white/10 bg-[#070910]/95 p-4 backdrop-blur-2xl sm:p-5 lg:translate-x-0 ${
+          sidebarCollapsed ? "lg:w-24" : "lg:w-72"
+        } ${
+          sidebarOpen
+            ? "translate-x-0"
+            : "-translate-x-full"
+        }`}
       >
         <div
-          className={`relative mb-7 flex items-center sm:mb-9 ${sidebarCollapsed ? "lg:justify-center" : "justify-between"
-            }`}
+          className={`relative mb-7 flex items-center sm:mb-9 ${
+            sidebarCollapsed
+              ? "lg:justify-center"
+              : "justify-between"
+          }`}
         >
           <button
             type="button"
@@ -257,17 +327,23 @@ export default function Sidebar({
                 handleToggleSidebarCollapse();
               }
             }}
-            className={`flex min-w-0 items-center bg-transparent p-0 text-left ${sidebarCollapsed
-              ? "cursor-pointer lg:justify-center"
-              : "cursor-default"
-              } ${sidebarCollapsed ? "" : "gap-3"}`}
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Viralo AI"}
+            className={`flex min-w-0 items-center bg-transparent p-0 text-left ${
+              sidebarCollapsed
+                ? "cursor-pointer lg:justify-center"
+                : "cursor-default"
+            } ${sidebarCollapsed ? "" : "gap-3"}`}
+            aria-label={
+              sidebarCollapsed
+                ? "Expand sidebar"
+                : "Viralo AI"
+            }
           >
             <div
-              className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-transparent ${sidebarCollapsed
-                ? "h-11 w-11 sm:h-12 sm:w-12"
-                : "h-12 w-12 sm:h-[52px] sm:w-[52px]"
-                }`}
+              className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-transparent ${
+                sidebarCollapsed
+                  ? "h-11 w-11 sm:h-12 sm:w-12"
+                  : "h-12 w-12 sm:h-[52px] sm:w-[52px]"
+              }`}
             >
               <video
                 src="/logo.mp4"
@@ -280,14 +356,17 @@ export default function Sidebar({
                 disablePictureInPicture
                 disableRemotePlayback
                 controlsList="nodownload noplaybackrate noremoteplayback"
-                onContextMenu={(event) => event.preventDefault()}
+                onContextMenu={(event) =>
+                  event.preventDefault()
+                }
                 aria-label="Viralo AI"
               />
             </div>
 
             <div
-              className={`min-w-0 text-left ${sidebarCollapsed ? "lg:hidden" : ""
-                }`}
+              className={`min-w-0 text-left ${
+                sidebarCollapsed ? "lg:hidden" : ""
+              }`}
             >
               <h1 className="truncate text-base font-semibold tracking-tight text-white">
                 Viralo AI
@@ -299,7 +378,6 @@ export default function Sidebar({
             </div>
           </button>
 
-          {/* Desktop close/open icon — logo text ke right side */}
           {!sidebarCollapsed && (
             <button
               type="button"
@@ -311,7 +389,6 @@ export default function Sidebar({
             </button>
           )}
 
-          {/* Mobile close icon */}
           <button
             type="button"
             className="absolute right-0 top-1/2 -translate-y-1/2 rounded-xl p-2 text-zinc-400 lg:hidden"
@@ -330,24 +407,33 @@ export default function Sidebar({
               <NavLink
                 key={item.path}
                 to={item.path}
-                title={sidebarCollapsed ? item.label : undefined}
+                title={
+                  sidebarCollapsed
+                    ? item.label
+                    : undefined
+                }
                 onClick={() => {
                   setSidebarOpen(false);
                   setAccountMenuOpen(false);
                 }}
                 className={({ isActive }) =>
-                  `flex w-full items-center gap-3 rounded-2xl py-3 text-sm ${sidebarCollapsed ? "px-4 lg:justify-center lg:px-3" : "px-4"
-                  } ${isActive
-                    ? "bg-white/[0.08] text-white shadow-inner shadow-white/5"
-                    : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100"
+                  `flex w-full items-center gap-3 rounded-2xl py-3 text-sm ${
+                    sidebarCollapsed
+                      ? "px-4 lg:justify-center lg:px-3"
+                      : "px-4"
+                  } ${
+                    isActive
+                      ? "bg-white/[0.08] text-white shadow-inner shadow-white/5"
+                      : "text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100"
                   }`
                 }
               >
                 <Icon className="h-4 w-4 shrink-0" />
 
                 <span
-                  className={`truncate ${sidebarCollapsed ? "lg:hidden" : ""
-                    }`}
+                  className={`truncate ${
+                    sidebarCollapsed ? "lg:hidden" : ""
+                  }`}
                 >
                   {item.label}
                 </span>
@@ -357,26 +443,34 @@ export default function Sidebar({
         </nav>
 
         <div
-          className={`mt-auto rounded-3xl border border-white/10 bg-white/[0.04] ${sidebarCollapsed ? "p-4 lg:mx-auto lg:w-fit lg:p-2" : "p-4"
-            }`}
+          className={`mt-auto rounded-3xl border border-white/10 bg-white/[0.04] ${
+            sidebarCollapsed
+              ? "p-4 lg:mx-auto lg:w-fit lg:p-2"
+              : "p-4"
+          }`}
         >
           {!user ? (
             <>
               <div
-                className={`mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-400/10 ${sidebarCollapsed ? "lg:mx-auto" : ""
-                  }`}
+                className={`mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-400/10 ${
+                  sidebarCollapsed ? "lg:mx-auto" : ""
+                }`}
               >
                 <Sparkles className="h-5 w-5 text-cyan-300" />
               </div>
 
-              <div className={sidebarCollapsed ? "lg:hidden" : ""}>
+              <div
+                className={
+                  sidebarCollapsed ? "lg:hidden" : ""
+                }
+              >
                 <p className="text-sm font-medium text-white">
                   Create your account
                 </p>
 
                 <p className="mt-1 text-xs leading-5 text-zinc-500">
-                  Sign up to scan viral ideas, save research, and access your
-                  history.
+                  Sign up to scan viral ideas, save research,
+                  and access your history.
                 </p>
 
                 <Button
@@ -389,31 +483,43 @@ export default function Sidebar({
               </div>
             </>
           ) : (
-            <div className="relative" ref={accountMenuRef}>
+            <div
+              className="relative"
+              ref={accountMenuRef}
+            >
               <div
-                className={`flex ${sidebarCollapsed
-                  ? "items-center gap-3 lg:flex-col lg:gap-2"
-                  : "items-center gap-3"
-                  }`}
+                className={`flex ${
+                  sidebarCollapsed
+                    ? "items-center gap-3 lg:flex-col lg:gap-2"
+                    : "items-center gap-3"
+                }`}
               >
                 <button
                   type="button"
                   onClick={() => {
                     if (sidebarCollapsed) {
-                      setAccountMenuOpen((current) => !current);
+                      setAccountMenuOpen(
+                        (current) => !current
+                      );
                     }
                   }}
-                  className={`flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] ${sidebarCollapsed
-                    ? "h-12 w-12 lg:h-10 lg:w-10"
-                    : "h-12 w-12"
-                    } ${sidebarCollapsed
+                  className={`flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] ${
+                    sidebarCollapsed
+                      ? "h-12 w-12 lg:h-10 lg:w-10"
+                      : "h-12 w-12"
+                  } ${
+                    sidebarCollapsed
                       ? "cursor-pointer hover:border-cyan-300/40 hover:bg-cyan-300/10"
                       : "cursor-default"
-                    }`}
+                  }`}
                   aria-label="Open account menu"
                   aria-expanded={accountMenuOpen}
                   aria-haspopup="menu"
-                  title={sidebarCollapsed ? "Account menu" : displayName}
+                  title={
+                    sidebarCollapsed
+                      ? "Account menu"
+                      : displayName
+                  }
                 >
                   {displayPhoto ? (
                     <img
@@ -427,8 +533,9 @@ export default function Sidebar({
                 </button>
 
                 <div
-                  className={`min-w-0 flex-1 ${sidebarCollapsed ? "lg:hidden" : ""
-                    }`}
+                  className={`min-w-0 flex-1 ${
+                    sidebarCollapsed ? "lg:hidden" : ""
+                  }`}
                 >
                   <p className="truncate text-sm font-semibold text-white">
                     {displayName}
@@ -438,16 +545,23 @@ export default function Sidebar({
                     {displayEmail}
                   </p>
 
-                  <span className="mt-1 inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">
-                    {displayPlanLabel} plan
-                  </span>
+                  {planResolved && displayPlanLabel ? (
+                    <span className="mt-1 inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">
+                      {displayPlanLabel} plan
+                    </span>
+                  ) : null}
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => setAccountMenuOpen((current) => !current)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08] hover:text-white ${sidebarCollapsed ? "lg:hidden" : ""
-                    }`}
+                  onClick={() =>
+                    setAccountMenuOpen(
+                      (current) => !current
+                    )
+                  }
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08] hover:text-white ${
+                    sidebarCollapsed ? "lg:hidden" : ""
+                  }`}
                   aria-label="Account menu"
                   aria-expanded={accountMenuOpen}
                   aria-haspopup="menu"
@@ -459,12 +573,13 @@ export default function Sidebar({
 
               {accountMenuOpen && (
                 <div
-                  className={`absolute z-[9999] w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#11131b]/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-2xl ${sidebarCollapsed
-                    ? "bottom-[calc(100%+0.6rem)] right-0 lg:bottom-0 lg:left-[calc(100%+0.75rem)] lg:right-auto"
-                    : "bottom-[calc(100%+0.6rem)] right-0"
-                    }`}
+                  className={`absolute z-[9999] w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#11131b]/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-2xl ${
+                    sidebarCollapsed
+                      ? "bottom-[calc(100%+0.6rem)] right-0 lg:bottom-0 lg:left-[calc(100%+0.75rem)] lg:right-auto"
+                      : "bottom-[calc(100%+0.6rem)] right-0"
+                  }`}
                 >
-                  {!hasFullAccess && (
+                  {planResolved && !hasFullAccess && (
                     <button
                       type="button"
                       onClick={handleUpgradeClick}
@@ -524,7 +639,8 @@ export default function Sidebar({
             </h2>
 
             <p className="mt-2 text-sm leading-6 text-zinc-400">
-              Are you sure you want to logout from your account?
+              Are you sure you want to logout from your
+              account?
             </p>
 
             <div className="mt-6 grid grid-cols-2 gap-3">

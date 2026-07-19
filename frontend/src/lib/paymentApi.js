@@ -2,21 +2,33 @@ import { auth } from "./firebase";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-function createApiError(data, statusCode, fallbackMessage) {
-  const error = new Error(data?.message || fallbackMessage);
+function createApiError(
+  data,
+  statusCode,
+  fallbackMessage
+) {
+  const error = new Error(
+    data?.message || fallbackMessage
+  );
+
   error.statusCode = statusCode;
   error.code = data?.code || "";
+
   return error;
 }
 
-async function getAuthHeaders() {
+async function getAuthHeaders({
+  forceRefresh = false,
+} = {}) {
   const currentUser = auth.currentUser;
 
   if (!currentUser) {
     throw new Error("Please login first.");
   }
 
-  const token = await currentUser.getIdToken();
+  const token = await currentUser.getIdToken(
+    forceRefresh
+  );
 
   return {
     "Content-Type": "application/json",
@@ -46,12 +58,41 @@ export async function getPaymentAccess() {
   return data;
 }
 
+export async function restorePaymentAccess() {
+  const response = await fetch(
+    `${API_BASE_URL}/payments/restore-access`,
+    {
+      method: "POST",
+      headers: await getAuthHeaders({
+        // Email verification may have just completed.
+        forceRefresh: true,
+      }),
+      body: JSON.stringify({}),
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw createApiError(
+      data,
+      response.status,
+      "Could not restore your active purchase."
+    );
+  }
+
+  return data;
+}
+
 export async function createProPaymentQuote() {
-  const response = await fetch(`${API_BASE_URL}/payments/quote`, {
-    method: "POST",
-    headers: await getAuthHeaders(),
-    body: JSON.stringify({}),
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/payments/quote`,
+    {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({}),
+    }
+  );
 
   const data = await response.json().catch(() => ({}));
 
@@ -66,33 +107,49 @@ export async function createProPaymentQuote() {
   return data?.quote || null;
 }
 
-export async function createRazorpayOrder({ quoteId }) {
-  const response = await fetch(`${API_BASE_URL}/payments/razorpay/order`, {
-    method: "POST",
-    headers: await getAuthHeaders(),
-    body: JSON.stringify({ quoteId }),
-  });
+export async function createRazorpayOrder({
+  quoteId,
+}) {
+  const response = await fetch(
+    `${API_BASE_URL}/payments/razorpay/order`,
+    {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ quoteId }),
+    }
+  );
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw createApiError(data, response.status, "Could not start payment.");
+    throw createApiError(
+      data,
+      response.status,
+      "Could not start payment."
+    );
   }
 
   return data?.order || null;
 }
 
 export async function verifyRazorpayPayment(payload) {
-  const response = await fetch(`${API_BASE_URL}/payments/razorpay/verify`, {
-    method: "POST",
-    headers: await getAuthHeaders(),
-    body: JSON.stringify(payload),
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/payments/razorpay/verify`,
+    {
+      method: "POST",
+      headers: await getAuthHeaders(),
+      body: JSON.stringify(payload),
+    }
+  );
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw createApiError(data, response.status, "Could not verify payment.");
+    throw createApiError(
+      data,
+      response.status,
+      "Could not verify payment."
+    );
   }
 
   return data;

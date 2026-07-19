@@ -87,6 +87,54 @@ export async function upsertUserProfile(user, extraData = {}) {
   return payload;
 }
 
+export async function saveOnboardingProfile({
+  userId,
+  creatorType,
+  creatorNiche,
+  platformPreference,
+  defaultPlatform,
+  defaultAudience = "New creators",
+  creatorGoals = [],
+  youtubeChannelUrl = "",
+}) {
+  const currentUser = auth.currentUser;
+
+  if (!currentUser || currentUser.uid !== userId) {
+    throw new Error("Unauthorized user");
+  }
+
+  const cleanNiche = String(creatorNiche || "").trim();
+
+  if (!cleanNiche) {
+    throw new Error("Creator niche is required.");
+  }
+
+  const payload = {
+    uid: userId,
+    email: currentUser.email || "",
+    name: currentUser.displayName || "",
+    photoURL: currentUser.photoURL || "",
+    creatorType: creatorType || "",
+    creatorNiche: cleanNiche,
+    platformPreference: platformPreference || "youtube",
+    defaultPlatform: defaultPlatform || "YouTube",
+    defaultAudience: defaultAudience || "New creators",
+    creatorGoals: Array.isArray(creatorGoals) ? creatorGoals : [],
+    youtubeChannelUrl: String(youtubeChannelUrl || "").trim(),
+    onboardingCompleted: true,
+    onboardingCompletedAt: serverTimestamp(),
+    status: "active",
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(doc(db, "app_users", userId), payload, { merge: true });
+
+  return {
+    ...payload,
+    onboardingCompletedAt: new Date().toISOString(),
+  };
+}
+
 export async function updateUserProfile({
   userId,
   name,

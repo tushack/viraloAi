@@ -13,13 +13,13 @@ import { useLocation, useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
+import { useAuth } from "../context/AuthContext";
 import {
   createProPaymentQuote,
   createRazorpayOrder,
-  verifyRazorpayPayment,
   getPaymentAccess,
+  verifyRazorpayPayment,
 } from "../lib/paymentApi";
-import { useAuth } from "../context/AuthContext";
 
 function loadRazorpayCheckout() {
   if (window.Razorpay) {
@@ -32,6 +32,11 @@ function loadRazorpayCheckout() {
     );
 
     if (existingScript) {
+      if (window.Razorpay) {
+        resolve();
+        return;
+      }
+
       existingScript.addEventListener("load", resolve, { once: true });
       existingScript.addEventListener(
         "error",
@@ -45,7 +50,8 @@ function loadRazorpayCheckout() {
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.async = true;
     script.onload = resolve;
-    script.onerror = () => reject(new Error("Could not load secure checkout."));
+    script.onerror = () =>
+      reject(new Error("Could not load secure checkout."));
     document.body.appendChild(script);
   });
 }
@@ -80,16 +86,6 @@ function formatUsdCents(cents) {
   }).format(amount);
 }
 
-function formatFxRate(rate) {
-  const numberRate = Number(rate);
-
-  if (!Number.isFinite(numberRate) || numberRate <= 0) {
-    return "Live rate unavailable";
-  }
-
-  return `1 USD = ₹${numberRate.toFixed(4)}`;
-}
-
 function formatExpiry(expiresAt) {
   const date = new Date(expiresAt || "");
 
@@ -109,6 +105,29 @@ function isQuoteError(error) {
   );
 }
 
+function getPaymentFailureDetails(response) {
+  const paymentError = response?.error || {};
+  const metadata = paymentError?.metadata || {};
+
+  return {
+    message:
+      paymentError.description ||
+      paymentError.reason ||
+      "Payment was not completed. Please try again.",
+    code: paymentError.code || "",
+    orderId:
+      metadata.order_id ||
+      metadata.orderId ||
+      response?.razorpay_order_id ||
+      "",
+    paymentId:
+      metadata.payment_id ||
+      metadata.paymentId ||
+      response?.razorpay_payment_id ||
+      "",
+  };
+}
+
 export default function Checkout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -118,15 +137,18 @@ export default function Checkout() {
   const [loadingQuote, setLoadingQuote] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
+  const upgradeDetails = location.state?.upgrade || null;
   const isIndia = quote?.countryCode === "IN";
   const taxPercent = Number(quote?.taxBps || 0) / 100;
 
   const payLabel = useMemo(() => {
     if (!quote) return "Loading secure checkout...";
 
-    return `Pay ${formatMinorAmount(quote.totalMinor, quote.currency)}`;
+    return `Pay ${formatMinorAmount(
+      quote.totalMinor,
+      quote.currency
+    )}`;
   }, [quote]);
 
   const basePriceLabel = useMemo(() => {
@@ -143,49 +165,66 @@ export default function Checkout() {
     try {
       setLoadingQuote(true);
       setError("");
-      setSuccess("");
+
       const accessResponse = await getPaymentAccess();
       const currentAccess = accessResponse?.access || null;
 
       if (currentAccess?.isPaid) {
-        const endDate = currentAccess.currentPeriodEnd
-          ? new Date(
-            currentAccess.currentPeriodEnd
-          ).toLocaleDateString("en-IN", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          })
-          : "";
-
-        setQuote(null);
-        setError(
-          endDate
-            ? `Your Pro plan is already active until ${endDate}.`
-            : "Your Pro plan is already active."
-        );
-
+        navigate("/payment/success", {
+          replace: true,
+          state: {
+            message: "Your Pro plan is already active.",
+            access: currentAccess,
+          },
+        });
         return;
       }
 
       const nextQuote = await createProPaymentQuote();
 
       if (!nextQuote?.id) {
-        throw new Error("A valid live payment quote was not returned.");
+        throw new Error(
+          "A valid live payment quote was not returned."
+        );
       }
 
       setQuote(nextQuote);
     } catch (quoteError) {
       setQuote(null);
-      setError(quoteError.message || "Could not load live checkout price.");
+      setError(
+        quoteError.message ||
+          "Could not load live checkout price."
+      );
     } finally {
       setLoadingQuote(false);
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     loadQuote();
   }, [loadQuote]);
+
+  const openFailurePage = ({
+    stage,
+    title,
+    message,
+    code = "",
+    orderId = "",
+    paymentId = "",
+  }) => {
+    navigate("/payment/failed", {
+      replace: true,
+      state: {
+        stage,
+        title,
+        message,
+        code,
+        orderId,
+        paymentId,
+        upgrade: upgradeDetails,
+      },
+    });
+  };
 
   const handlePay = async () => {
     if (!quote?.id || processing) return;
@@ -193,7 +232,6 @@ export default function Checkout() {
     try {
       setProcessing(true);
       setError("");
-      setSuccess("");
 
       await loadRazorpayCheckout();
 
@@ -202,7 +240,9 @@ export default function Checkout() {
       });
 
       if (!order?.orderId || !order?.keyId || !window.Razorpay) {
-        throw new Error("Payment checkout could not be initialized.");
+        throw new Error(
+          "Payment checkout could not be initialized."
+        );
       }
 
       const checkout = new window.Razorpay({
@@ -221,21 +261,38 @@ export default function Checkout() {
         },
         handler: async (response) => {
           try {
-            const verification = await verifyRazorpayPayment(response);
+            const verification =
+              await verifyRazorpayPayment(response);
 
-            setSuccess(
-              verification?.message ||
-              "Payment verified. Pro unlimited access is active."
-            );
-
-            window.setTimeout(() => {
-              navigate("/dashboard", { replace: true });
-            }, 900);
+            navigate("/payment/success", {
+              replace: true,
+              state: {
+                message:
+                  verification?.message ||
+                  "Payment verified. Pro unlimited access is active.",
+                verification,
+                paymentId:
+                  response?.razorpay_payment_id || "",
+                orderId:
+                  response?.razorpay_order_id ||
+                  order.orderId ||
+                  "",
+              },
+            });
           } catch (verificationError) {
-            setError(
-              verificationError.message ||
-              "Payment completed but verification is pending. Refresh after a moment."
-            );
+            openFailurePage({
+              stage: "verification",
+              title: "Payment confirmation pending",
+              message:
+                verificationError.message ||
+                "The payment response was received, but Viralo AI could not confirm your Pro access yet.",
+              orderId:
+                response?.razorpay_order_id ||
+                order.orderId ||
+                "",
+              paymentId:
+                response?.razorpay_payment_id || "",
+            });
           } finally {
             setProcessing(false);
           }
@@ -243,25 +300,44 @@ export default function Checkout() {
         modal: {
           ondismiss: () => {
             setProcessing(false);
+            setError(
+              "Secure checkout was closed. No payment was confirmed."
+            );
           },
         },
       });
 
       checkout.on("payment.failed", (response) => {
-        setError(
-          response?.error?.description ||
-          "Payment was not completed. Please try again."
-        );
+        const failure = getPaymentFailureDetails(response);
+
         setProcessing(false);
+
+        openFailurePage({
+          stage: "payment",
+          title: "Payment unsuccessful",
+          message: failure.message,
+          code: failure.code,
+          orderId: failure.orderId || order.orderId,
+          paymentId: failure.paymentId,
+        });
       });
 
       checkout.open();
     } catch (paymentError) {
       if (isQuoteError(paymentError)) {
-        setError(paymentError.message || "Your price quote expired. Refresh it and try again.");
+        setError(
+          paymentError.message ||
+            "Your price quote expired. A new quote is being loaded."
+        );
         await loadQuote();
       } else {
-        setError(paymentError.message || "Could not start secure payment.");
+        openFailurePage({
+          stage: "initialization",
+          title: "Checkout could not start",
+          message:
+            paymentError.message ||
+            "Viralo AI could not open secure checkout.",
+        });
       }
 
       setProcessing(false);
@@ -269,12 +345,19 @@ export default function Checkout() {
   };
 
   return (
-    <DashboardLayout eyebrow="Checkout" title="Complete your Pro upgrade">
+    <DashboardLayout
+      eyebrow="Checkout"
+      title="Complete your Pro upgrade"
+    >
       <section className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <button
             type="button"
-            onClick={() => navigate("/payment", { state: location.state })}
+            onClick={() =>
+              navigate("/payment", {
+                state: location.state,
+              })
+            }
             className="inline-flex items-center gap-2 text-sm text-zinc-400 transition hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -286,8 +369,8 @@ export default function Checkout() {
           </h1>
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-            The final amount below is created server-side and locked only for this
-            secure checkout session.
+            The final amount below is created server-side and
+            locked only for this secure checkout session.
           </p>
         </div>
 
@@ -298,14 +381,8 @@ export default function Checkout() {
       </section>
 
       {error && (
-        <div className="mb-5 rounded-2xl border border-red-300/20 bg-red-500/10 p-4 text-sm text-red-100">
+        <div className="mb-5 rounded-2xl border border-red-300/20 bg-red-500/10 p-4 text-sm leading-6 text-red-100">
           {error}
-        </div>
-      )}
-
-      {success && (
-        <div className="mb-5 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">
-          {success}
         </div>
       )}
 
@@ -318,10 +395,13 @@ export default function Checkout() {
               </div>
 
               <div>
-                <h2 className="text-xl font-semibold text-white">Viralo AI Pro</h2>
+                <h2 className="text-xl font-semibold text-white">
+                  Viralo AI Pro
+                </h2>
                 <p className="mt-1 text-sm leading-6 text-zinc-400">
-                  Unlimited creator research tools, complete history, and all current
-                  Pro features for {planPeriodLabel}.
+                  Unlimited creator research tools, complete
+                  history, and all current Pro features for{" "}
+                  {planPeriodLabel}.
                 </p>
               </div>
             </div>
@@ -334,24 +414,25 @@ export default function Checkout() {
                 {basePriceLabel}
               </p>
               <p className="mt-2 text-sm leading-6 text-zinc-400">
-                The product price is fixed in USD. The checkout total below is the
-                live equivalent for your payment currency.
+                The product price is fixed in USD. Your final
+                checkout total is displayed in the supported
+                payment currency.
               </p>
             </div>
 
             <div className="mt-6 space-y-3 text-sm text-zinc-300">
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
-                Unlimited dashboard, trend, competitor, and YouTube download access.
-              </div>
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
-                Complete research-history access during your active Pro period.
-              </div>
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
-                Payment activation occurs only after Razorpay verification.
-              </div>
+              <FeatureRow>
+                Unlimited dashboard, trend, competitor, and
+                YouTube download access.
+              </FeatureRow>
+              <FeatureRow>
+                Complete research-history access during your
+                active Pro period.
+              </FeatureRow>
+              <FeatureRow>
+                Pro access activates only after server-side
+                Razorpay verification.
+              </FeatureRow>
             </div>
           </CardContent>
         </Card>
@@ -360,7 +441,9 @@ export default function Checkout() {
           <CardContent className="p-6 sm:p-8">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-white">Order summary</h2>
+                <h2 className="text-lg font-semibold text-white">
+                  Order summary
+                </h2>
                 <p className="mt-1 text-sm text-zinc-500">
                   Live quote before payment
                 </p>
@@ -373,7 +456,11 @@ export default function Checkout() {
                 disabled={loadingQuote || processing}
                 className="h-9 rounded-full border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300 hover:bg-white/[0.09]"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${loadingQuote ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${
+                    loadingQuote ? "animate-spin" : ""
+                  }`}
+                />
                 Refresh
               </Button>
             </div>
@@ -388,13 +475,10 @@ export default function Checkout() {
             ) : quote ? (
               <>
                 <div className="mt-7 space-y-4 border-y border-white/10 py-5 text-sm">
-                  <SummaryRow label="Product price" value={basePriceLabel} />
-                  {/* {isIndia && (
-                    <SummaryRow
-                      label="Live exchange rate"
-                      value={formatFxRate(quote.fxRate)}
-                    />
-                  )} */}
+                  <SummaryRow
+                    label="Product price"
+                    value={basePriceLabel}
+                  />
 
                   {!isIndia && (
                     <SummaryRow
@@ -405,36 +489,50 @@ export default function Checkout() {
 
                   <SummaryRow
                     label="Plan value"
-                    value={formatMinorAmount(quote.subtotalMinor, quote.currency)}
+                    value={formatMinorAmount(
+                      quote.subtotalMinor,
+                      quote.currency
+                    )}
                   />
 
                   <SummaryRow
                     label={
                       quote.taxBps > 0
-                        ? `Tax included (${taxPercent.toFixed(2)}%)`
+                        ? `Tax included (${taxPercent.toFixed(
+                            2
+                          )}%)`
                         : "Tax included"
                     }
-                    value={formatMinorAmount(quote.taxMinor, quote.currency)}
+                    value={formatMinorAmount(
+                      quote.taxMinor,
+                      quote.currency
+                    )}
                   />
                 </div>
 
                 <div className="mt-5 flex items-end justify-between gap-4">
                   <div>
-                    <p className="text-sm font-medium text-zinc-400">Total payable</p>
+                    <p className="text-sm font-medium text-zinc-400">
+                      Total payable
+                    </p>
                     <p className="mt-1 text-xs text-zinc-600">
-                      Quote valid until {formatExpiry(quote.expiresAt)}
+                      Quote valid until{" "}
+                      {formatExpiry(quote.expiresAt)}
                     </p>
                   </div>
 
                   <p className="text-2xl font-black tracking-tight text-white">
-                    {formatMinorAmount(quote.totalMinor, quote.currency)}
+                    {formatMinorAmount(
+                      quote.totalMinor,
+                      quote.currency
+                    )}
                   </p>
                 </div>
 
                 <p className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-3 text-xs leading-5 text-zinc-400">
                   {isIndia
                     ? "This INR amount is calculated from the live USD to INR rate. Tax is included inside the final total."
-                    : "International checkout is charged in USD. Your bank or card issuer may show the equivalent in your card billing currency."}
+                    : "International checkout is charged in USD. Your bank or card issuer may display the equivalent in your billing currency."}
                 </p>
 
                 <Button
@@ -458,7 +556,8 @@ export default function Checkout() {
               </>
             ) : (
               <div className="mt-7 rounded-2xl border border-red-300/20 bg-red-500/10 p-4 text-sm text-red-100">
-                The live price could not be loaded. Refresh to try again.
+                The live price could not be loaded. Refresh to
+                try again.
               </div>
             )}
           </CardContent>
@@ -468,11 +567,22 @@ export default function Checkout() {
   );
 }
 
+function FeatureRow({ children }) {
+  return (
+    <div className="flex items-start gap-3">
+      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
 function SummaryRow({ label, value }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="text-zinc-500">{label}</span>
-      <span className="text-right font-medium text-zinc-200">{value}</span>
+      <span className="text-right font-medium text-zinc-200">
+        {value}
+      </span>
     </div>
   );
 }

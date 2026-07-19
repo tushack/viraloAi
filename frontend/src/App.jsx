@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
+
 import Onboarding from "./pages/Onboarding";
+import VerifyEmail from "./pages/VerifyEmail";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import FreshTopics from "./pages/FreshTopics";
@@ -23,10 +25,160 @@ import AdminPanel from "./pages/AdminPanel";
 import AdminAccessDenied from "./pages/AdminAccessDenied";
 import { getAdminAccess } from "./lib/api";
 import Checkout from "./pages/Checkout";
+import PaymentSuccess from "./pages/PaymentSuccess";
+import PaymentFailed from "./pages/PaymentFailed";
 import HelpCenter from "./pages/HelpCenter";
 import LegalInfoPage from "./pages/LegalInfoPage";
 import ContactUs from "./pages/ContactUs";
+import { restorePaymentAccess } from "./lib/paymentApi";
 
+function PageLoader({ message = "Loading Viralo AI..." }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#050711] px-4 text-white">
+      <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4 text-sm text-zinc-300 shadow-xl shadow-black/20">
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
+        <span>{message}</span>
+      </div>
+    </main>
+  );
+}
+
+
+function PurchaseRestoreGate({ children }) {
+  const { user } = useAuth();
+  const [restoreStatus, setRestoreStatus] =
+    useState("checking");
+
+  useEffect(() => {
+    let active = true;
+
+    if (!user?.uid || !user.emailVerified) {
+      setRestoreStatus("ready");
+
+      return () => {
+        active = false;
+      };
+    }
+
+    const sessionKey =
+      `viraloPurchaseRestoreChecked:${user.uid}`;
+
+    if (sessionStorage.getItem(sessionKey) === "true") {
+      setRestoreStatus("ready");
+
+      return () => {
+        active = false;
+      };
+    }
+
+    setRestoreStatus("checking");
+
+    restorePaymentAccess()
+      .then((result) => {
+        if (!active) return;
+
+        sessionStorage.setItem(sessionKey, "true");
+
+        if (result?.restored) {
+          localStorage.setItem(
+            `viraloPurchaseRestored:${user.uid}`,
+            JSON.stringify({
+              restored: true,
+              currentPeriodEnd:
+                result?.access?.currentPeriodEnd || null,
+              restoredAt: new Date().toISOString(),
+            })
+          );
+        }
+
+        setRestoreStatus("ready");
+      })
+      .catch((error) => {
+        if (!active) return;
+
+        /*
+         * Do not lock the whole application when the restore check is
+         * temporarily unavailable. Payment pages can check access again.
+         */
+        console.error(
+          "Purchase restore check failed:",
+          error
+        );
+
+        setRestoreStatus("ready");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user?.emailVerified, user?.uid]);
+
+  if (restoreStatus === "checking") {
+    return (
+      <PageLoader message="Checking existing Pro access..." />
+    );
+  }
+
+  return children;
+}
+
+function HomeRoute() {
+  const { user, authLoading } = useAuth();
+
+  if (authLoading) {
+    return <PageLoader />;
+  }
+
+  if (!user) {
+    return <Landing />;
+  }
+
+  if (!user.emailVerified) {
+    return <Navigate to="/verify-email" replace />;
+  }
+
+  return <Navigate to="/dashboard" replace />;
+}
+
+function VerifyEmailRoute() {
+  const { user, authLoading } = useAuth();
+
+  if (authLoading) {
+    return <PageLoader message="Checking your account..." />;
+  }
+
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (user.emailVerified) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <VerifyEmail />;
+}
+
+function ProtectedRoute({ children }) {
+  const { user, authLoading } = useAuth();
+
+  if (authLoading) {
+    return <PageLoader />;
+  }
+
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (!user.emailVerified) {
+    return <Navigate to="/verify-email" replace />;
+  }
+
+  return (
+    <PurchaseRestoreGate>
+      {children}
+    </PurchaseRestoreGate>
+  );
+}
 
 function DashboardRoute({ children }) {
   const { user, authLoading } = useAuth();
@@ -39,6 +191,20 @@ function DashboardRoute({ children }) {
     return <Navigate to="/" replace />;
   }
 
+  if (!user.emailVerified) {
+    return <Navigate to="/verify-email" replace />;
+  }
+
+  return (
+    <PurchaseRestoreGate>
+      <DashboardOnboardingGate user={user}>
+        {children}
+      </DashboardOnboardingGate>
+    </PurchaseRestoreGate>
+  );
+}
+
+function DashboardOnboardingGate({ user, children }) {
   const onboardingCompleted =
     localStorage.getItem(
       `viraloOnboardingCompleted:${user.uid}`
@@ -51,63 +217,6 @@ function DashboardRoute({ children }) {
   return children;
 }
 
-/**
- * Firebase authentication status check hote time
- * white/blank screen ki jagah loader show karega.
- */
-function PageLoader({ message = "Loading Viralo AI..." }) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[#050711] px-4 text-white">
-      <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4 text-sm text-zinc-300 shadow-xl shadow-black/20">
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
-
-        <span>{message}</span>
-      </div>
-    </main>
-  );
-}
-
-/**
- * Root route handling:
- *
- * Logged-out user  -> Landing Page
- * Logged-in user   -> Dashboard
- */
-function HomeRoute() {
-  const { user, authLoading } = useAuth();
-
-  if (authLoading) {
-    return <PageLoader />;
-  }
-
-  if (user) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
-  return <Landing />;
-}
-
-/**
- * Protected pages ko sirf logged-in users access kar sakte hain.
- */
-function ProtectedRoute({ children }) {
-  const { user, authLoading } = useAuth();
-
-  if (authLoading) {
-    return <PageLoader />;
-  }
-
-  if (!user) {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
-}
-
-/**
- * Admin page ke liye normal login ke saath
- * backend admin access bhi verify karega.
- */
 function AdminRoute({ children }) {
   const { user, authLoading } = useAuth();
   const [accessStatus, setAccessStatus] = useState("checking");
@@ -121,8 +230,8 @@ function AdminRoute({ children }) {
       };
     }
 
-    if (!user) {
-      setAccessStatus("denied");
+    if (!user || !user.emailVerified) {
+      setAccessStatus("checking");
 
       return () => {
         active = false;
@@ -146,14 +255,22 @@ function AdminRoute({ children }) {
     return () => {
       active = false;
     };
-  }, [authLoading, user?.uid]);
+  }, [authLoading, user?.emailVerified, user?.uid]);
 
-  if (authLoading || accessStatus === "checking") {
-    return <PageLoader message="Checking admin access..." />;
+  if (authLoading) {
+    return <PageLoader />;
   }
 
   if (!user) {
     return <Navigate to="/" replace />;
+  }
+
+  if (!user.emailVerified) {
+    return <Navigate to="/verify-email" replace />;
+  }
+
+  if (accessStatus === "checking") {
+    return <PageLoader message="Checking admin access..." />;
   }
 
   if (accessStatus !== "allowed") {
@@ -169,8 +286,10 @@ function App() {
       <AuthModal />
 
       <Routes>
-        {/* Public root route */}
         <Route path="/" element={<HomeRoute />} />
+
+        <Route path="/verify-email" element={<VerifyEmailRoute />} />
+
         <Route
           path="/onboarding"
           element={
@@ -180,7 +299,6 @@ function App() {
           }
         />
 
-        {/* Protected Dashboard */}
         <Route
           path="/dashboard"
           element={
@@ -272,6 +390,24 @@ function App() {
         />
 
         <Route
+          path="/payment/success"
+          element={
+            <ProtectedRoute>
+              <PaymentSuccess />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/payment/failed"
+          element={
+            <ProtectedRoute>
+              <PaymentFailed />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/content-pack"
           element={
             <ProtectedRoute>
@@ -325,14 +461,12 @@ function App() {
           }
         />
 
-        {/* Public informational pages */}
         <Route path="/help" element={<HelpCenter />} />
         <Route path="/about" element={<LegalInfoPage pageKey="about" />} />
         <Route path="/contact" element={<ContactUs />} />
         <Route path="/terms" element={<LegalInfoPage pageKey="terms" />} />
         <Route path="/privacy" element={<LegalInfoPage pageKey="privacy" />} />
 
-        {/* Unknown URL */}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

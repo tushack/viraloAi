@@ -10,15 +10,28 @@ import {
   Unlink,
   User,
 } from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
+
 import {
   disconnectYoutubeConnection,
   getYoutubeAuthUrl,
   getYoutubeConnection,
 } from "../lib/api";
+import { getPaymentAccess } from "../lib/paymentApi";
+import {
+  publishPlanAccess,
+  readCachedActivePlan,
+  subscribeToPlanAccess,
+} from "../lib/planAccessCache";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
-import { Card, CardContent } from "../components/ui/card";
+import {
+  Card,
+  CardContent,
+} from "../components/ui/card";
 import { useAuth } from "../context/AuthContext";
 import PasswordSettingsModal from "../components/settings/PasswordSettingsModal";
 
@@ -27,7 +40,9 @@ function formatConnectedDate(value) {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) return "Recently";
+  if (Number.isNaN(date.getTime())) {
+    return "Recently";
+  }
 
   return date.toLocaleString("en-IN", {
     day: "2-digit",
@@ -38,32 +53,148 @@ function formatConnectedDate(value) {
   });
 }
 
+function formatPlanEndDate(value) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export default function Settings() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const { hasPasswordProvider } = useAuth();
-  const [passwordModalOpen, setPasswordModalOpen] = React.useState(false);
+  const [searchParams, setSearchParams] =
+    useSearchParams();
 
-  const [youtubeLoading, setYoutubeLoading] = React.useState(true);
-  const [youtubeBusy, setYoutubeBusy] = React.useState(false);
-  const [youtubeConnection, setYoutubeConnection] = React.useState(null);
-  const [youtubeMessage, setYoutubeMessage] = React.useState("");
-  const [youtubeError, setYoutubeError] = React.useState("");
+  const { user, hasPasswordProvider } = useAuth();
 
-  const loadYoutubeConnection = React.useCallback(async () => {
-    try {
-      setYoutubeLoading(true);
-      setYoutubeError("");
+  const [passwordModalOpen, setPasswordModalOpen] =
+    React.useState(false);
 
-      const data = await getYoutubeConnection();
-      setYoutubeConnection(data?.connected ? data.connection : null);
-    } catch (error) {
-      setYoutubeConnection(null);
-      setYoutubeError(error.message || "Failed to load YouTube connection.");
-    } finally {
-      setYoutubeLoading(false);
-    }
-  }, []);
+  const [youtubeLoading, setYoutubeLoading] =
+    React.useState(true);
+  const [youtubeBusy, setYoutubeBusy] =
+    React.useState(false);
+  const [youtubeConnection, setYoutubeConnection] =
+    React.useState(null);
+  const [youtubeMessage, setYoutubeMessage] =
+    React.useState("");
+  const [youtubeError, setYoutubeError] =
+    React.useState("");
+
+  const [planAccess, setPlanAccess] =
+    React.useState(null);
+  const [planLoading, setPlanLoading] =
+    React.useState(true);
+  const [planError, setPlanError] =
+    React.useState("");
+
+  const loadPlanAccess = React.useCallback(
+    async ({ useCachedValue = true } = {}) => {
+      const userId = user?.uid || "";
+
+      if (!userId) {
+        setPlanAccess(null);
+        setPlanLoading(false);
+        setPlanError("");
+        return null;
+      }
+
+      const cachedAccess = useCachedValue
+        ? readCachedActivePlan(userId)
+        : null;
+
+      if (cachedAccess) {
+        setPlanAccess(cachedAccess);
+        setPlanLoading(false);
+      } else {
+        setPlanLoading(true);
+      }
+
+      try {
+        setPlanError("");
+
+        const response = await getPaymentAccess();
+        const nextAccess = response?.access || null;
+
+        setPlanAccess(nextAccess);
+        setPlanLoading(false);
+        publishPlanAccess(userId, nextAccess);
+
+        return nextAccess;
+      } catch (error) {
+        setPlanLoading(false);
+
+        if (!cachedAccess) {
+          setPlanAccess(null);
+        }
+
+        setPlanError(
+          error.message ||
+            "Could not verify your current plan."
+        );
+
+        return cachedAccess;
+      }
+    },
+    [user?.uid]
+  );
+
+  React.useEffect(() => {
+    let active = true;
+    const userId = user?.uid || "";
+
+    const unsubscribe = subscribeToPlanAccess(
+      ({ userId: updatedUserId, access }) => {
+        if (
+          active &&
+          String(updatedUserId || "") ===
+            String(userId)
+        ) {
+          setPlanAccess(access || null);
+          setPlanLoading(false);
+          setPlanError("");
+        }
+      }
+    );
+
+    loadPlanAccess();
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [loadPlanAccess, user?.uid]);
+
+  const loadYoutubeConnection =
+    React.useCallback(async () => {
+      try {
+        setYoutubeLoading(true);
+        setYoutubeError("");
+
+        const data = await getYoutubeConnection();
+
+        setYoutubeConnection(
+          data?.connected ? data.connection : null
+        );
+      } catch (error) {
+        setYoutubeConnection(null);
+        setYoutubeError(
+          error.message ||
+            "Failed to load YouTube connection."
+        );
+      } finally {
+        setYoutubeLoading(false);
+      }
+    }, []);
 
   React.useEffect(() => {
     loadYoutubeConnection();
@@ -71,27 +202,46 @@ export default function Settings() {
 
   React.useEffect(() => {
     const status = searchParams.get("youtube");
-    const message = searchParams.get("youtubeMessage");
+    const message =
+      searchParams.get("youtubeMessage");
 
     if (!status) return;
 
     if (status === "connected") {
-      setYoutubeMessage("YouTube channel connected successfully.");
+      setYoutubeMessage(
+        "YouTube channel connected successfully."
+      );
       setYoutubeError("");
       loadYoutubeConnection();
     } else if (status === "cancelled") {
       setYoutubeMessage("");
-      setYoutubeError(message || "YouTube connection was cancelled.");
+      setYoutubeError(
+        message ||
+          "YouTube connection was cancelled."
+      );
     } else if (status === "failed") {
       setYoutubeMessage("");
-      setYoutubeError(message || "Could not connect YouTube. Please try again.");
+      setYoutubeError(
+        message ||
+          "Could not connect YouTube. Please try again."
+      );
     }
 
-    const nextParams = new URLSearchParams(searchParams);
+    const nextParams = new URLSearchParams(
+      searchParams
+    );
+
     nextParams.delete("youtube");
     nextParams.delete("youtubeMessage");
-    setSearchParams(nextParams, { replace: true });
-  }, [loadYoutubeConnection, searchParams, setSearchParams]);
+
+    setSearchParams(nextParams, {
+      replace: true,
+    });
+  }, [
+    loadYoutubeConnection,
+    searchParams,
+    setSearchParams,
+  ]);
 
   const handleConnectYoutube = async () => {
     try {
@@ -102,18 +252,26 @@ export default function Settings() {
       const data = await getYoutubeAuthUrl();
 
       if (!data?.url) {
-        throw new Error("Could not create the YouTube authorization link.");
+        throw new Error(
+          "Could not create the YouTube authorization link."
+        );
       }
 
       window.location.assign(data.url);
     } catch (error) {
-      setYoutubeError(error.message || "Failed to start YouTube connection.");
+      setYoutubeError(
+        error.message ||
+          "Failed to start YouTube connection."
+      );
       setYoutubeBusy(false);
     }
   };
 
   const handleDisconnectYoutube = async () => {
-    const channelTitle = youtubeConnection?.channelTitle || "this YouTube channel";
+    const channelTitle =
+      youtubeConnection?.channelTitle ||
+      "this YouTube channel";
+
     const confirmed = window.confirm(
       `Disconnect ${channelTitle}? Generated content will not be deleted.`
     );
@@ -128,26 +286,90 @@ export default function Settings() {
       await disconnectYoutubeConnection();
 
       setYoutubeConnection(null);
-      setYoutubeMessage("YouTube channel disconnected successfully.");
+      setYoutubeMessage(
+        "YouTube channel disconnected successfully."
+      );
     } catch (error) {
-      setYoutubeError(error.message || "Failed to disconnect YouTube.");
+      setYoutubeError(
+        error.message ||
+          "Failed to disconnect YouTube."
+      );
     } finally {
       setYoutubeBusy(false);
     }
   };
 
-  const isConnected = Boolean(youtubeConnection?.channelId);
+  const handleViewPlan = async () => {
+    let currentAccess = planAccess;
+
+    if (!currentAccess || planError) {
+      currentAccess = await loadPlanAccess({
+        useCachedValue: false,
+      });
+    }
+
+    if (!currentAccess) {
+      return;
+    }
+
+    if (currentAccess.isPaid === true) {
+      navigate("/payment/success", {
+        state: {
+          message:
+            "Your Pro plan is already active.",
+          access: currentAccess,
+        },
+      });
+
+      return;
+    }
+
+    navigate("/payment");
+  };
+
+  const isConnected = Boolean(
+    youtubeConnection?.channelId
+  );
+
+  const isPaidPlan =
+    planAccess?.isPaid === true;
+
+  const planEndDate = formatPlanEndDate(
+    planAccess?.currentPeriodEnd
+  );
+
+  const subscriptionDescription =
+    planLoading && !planAccess
+      ? "Checking your current subscription securely..."
+      : isPaidPlan
+        ? planEndDate
+          ? `Your Viralo AI Pro plan is active until ${planEndDate}.`
+          : "Your Viralo AI Pro plan is active."
+        : planError
+          ? "Your plan could not be verified. Retry to check it again."
+          : "View your current plan, usage limits, billing details, and upgrade options.";
+
+  const subscriptionButtonText =
+    planLoading && !planAccess
+      ? "Checking Plan..."
+      : planError
+        ? "Retry"
+        : "View Plan";
 
   return (
-    <DashboardLayout eyebrow="Settings" title="Manage your workspace">
+    <DashboardLayout
+      eyebrow="Settings"
+      title="Manage your workspace"
+    >
       <section className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-4xl">
           Account Settings
         </h1>
 
         <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
-          Manage your profile, research preferences, connected accounts,
-          notifications, and subscription settings.
+          Manage your profile, research preferences,
+          connected accounts, notifications, and
+          subscription settings.
         </p>
       </section>
 
@@ -164,8 +386,14 @@ export default function Settings() {
           icon={KeyRound}
           title="Set / Update Password"
           description="Set or update your password for email sign-in."
-          buttonText={hasPasswordProvider ? "Update Password" : "Set Password"}
-          onClick={() => setPasswordModalOpen(true)}
+          buttonText={
+            hasPasswordProvider
+              ? "Update Password"
+              : "Set Password"
+          }
+          onClick={() =>
+            setPasswordModalOpen(true)
+          }
         />
 
         <Card className="border-cyan-300/15 bg-cyan-300/[0.04] transition hover:bg-cyan-300/[0.06]">
@@ -206,8 +434,13 @@ export default function Settings() {
                     <div className="mt-3 flex min-w-0 items-center gap-3">
                       {youtubeConnection?.channelThumbnail ? (
                         <img
-                          src={youtubeConnection.channelThumbnail}
-                          alt={youtubeConnection.channelTitle || "YouTube channel"}
+                          src={
+                            youtubeConnection.channelThumbnail
+                          }
+                          alt={
+                            youtubeConnection.channelTitle ||
+                            "YouTube channel"
+                          }
                           className="h-10 w-10 shrink-0 rounded-2xl border border-white/10 object-cover"
                         />
                       ) : (
@@ -218,17 +451,24 @@ export default function Settings() {
 
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-white">
-                          {youtubeConnection.channelTitle || "Connected YouTube channel"}
+                          {youtubeConnection.channelTitle ||
+                            "Connected YouTube channel"}
                         </p>
+
                         <p className="mt-1 text-xs text-zinc-500">
-                          Connected {formatConnectedDate(youtubeConnection.updatedAt)}
+                          Connected{" "}
+                          {formatConnectedDate(
+                            youtubeConnection.updatedAt
+                          )}
                         </p>
                       </div>
                     </div>
                   ) : (
                     <p className="mt-2 text-sm leading-6 text-zinc-500">
-                      Connect your own YouTube channel to apply generated title,
-                      description, tags, and thumbnail to videos you own.
+                      Connect your own YouTube channel
+                      to apply generated title,
+                      description, tags, and thumbnail
+                      to videos you own.
                     </p>
                   )}
                 </div>
@@ -252,7 +492,9 @@ export default function Settings() {
 
                   <Button
                     type="button"
-                    onClick={handleDisconnectYoutube}
+                    onClick={
+                      handleDisconnectYoutube
+                    }
                     disabled={youtubeBusy}
                     className="h-10 w-full rounded-full border border-red-400/20 bg-red-500/10 px-4 text-xs font-semibold text-red-200 hover:bg-red-500/20 sm:w-auto"
                   >
@@ -264,7 +506,10 @@ export default function Settings() {
                 <Button
                   type="button"
                   onClick={handleConnectYoutube}
-                  disabled={youtubeLoading || youtubeBusy}
+                  disabled={
+                    youtubeLoading ||
+                    youtubeBusy
+                  }
                   className="h-10 w-full rounded-full bg-cyan-300 px-4 text-xs font-semibold text-black hover:bg-cyan-200 sm:w-auto"
                 >
                   {youtubeBusy ? (
@@ -294,9 +539,15 @@ export default function Settings() {
         <SettingCard
           icon={CreditCard}
           title="Subscription"
-          description="View your current plan, usage limits, billing details, and upgrade options."
-          buttonText="View Plan"
-          onClick={() => navigate("/payment")}
+          description={subscriptionDescription}
+          buttonText={subscriptionButtonText}
+          onClick={handleViewPlan}
+          disabled={
+            planLoading && !planAccess
+          }
+          loading={
+            planLoading && !planAccess
+          }
         />
 
         <SettingCard
@@ -304,9 +555,12 @@ export default function Settings() {
           title="Data & Privacy"
           description="Delete selected records or delete your account after email verification. Permanent purge is scheduled after 30 days."
           buttonText="Manage Data"
-          onClick={() => navigate("/data-privacy")}
+          onClick={() =>
+            navigate("/data-privacy")
+          }
         />
       </section>
+
       <PasswordSettingsModal
         open={passwordModalOpen}
         onOpenChange={setPasswordModalOpen}
@@ -315,7 +569,15 @@ export default function Settings() {
   );
 }
 
-function SettingCard({ icon: Icon, title, description, buttonText, onClick }) {
+function SettingCard({
+  icon: Icon,
+  title,
+  description,
+  buttonText,
+  onClick,
+  disabled = false,
+  loading = false,
+}) {
   return (
     <Card className="border-white/10 bg-white/[0.04] transition hover:bg-white/[0.06]">
       <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -338,8 +600,12 @@ function SettingCard({ icon: Icon, title, description, buttonText, onClick }) {
         <Button
           type="button"
           onClick={onClick}
-          className="h-10 w-full shrink-0 rounded-full border border-white/10 bg-white/[0.05] px-4 text-xs font-medium text-zinc-200 hover:bg-white/[0.1] sm:w-auto"
+          disabled={disabled}
+          className="h-10 w-full shrink-0 rounded-full border border-white/10 bg-white/[0.05] px-4 text-xs font-medium text-zinc-200 hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
         >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : null}
           {buttonText}
         </Button>
       </CardContent>
