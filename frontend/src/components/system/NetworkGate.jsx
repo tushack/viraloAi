@@ -7,44 +7,86 @@ import {
 
 import OfflinePage from "./OfflinePage";
 
-const ONLINE_CHECK_INTERVAL_MS = 30000;
-const OFFLINE_RETRY_INTERVAL_MS = 5000;
-const REQUEST_TIMEOUT_MS = 5500;
+const ONLINE_CHECK_INTERVAL_MS = 10000;
+const OFFLINE_RETRY_INTERVAL_MS = 3000;
+const REQUEST_TIMEOUT_MS = 4500;
 
 function normalizeUrl(value) {
   return String(value || "").trim();
 }
 
+function isLocalOrPrivateHostname(hostname) {
+  const cleanHostname = String(hostname || "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    !cleanHostname ||
+    cleanHostname === "localhost" ||
+    cleanHostname === "127.0.0.1" ||
+    cleanHostname === "::1" ||
+    cleanHostname.endsWith(".local")
+  ) {
+    return true;
+  }
+
+  if (
+    /^10\./.test(cleanHostname) ||
+    /^192\.168\./.test(cleanHostname) ||
+    /^169\.254\./.test(cleanHostname)
+  ) {
+    return true;
+  }
+
+  const private172Match =
+    cleanHostname.match(/^172\.(\d{1,3})\./);
+
+  if (private172Match) {
+    const secondPart = Number(
+      private172Match[1]
+    );
+
+    if (
+      secondPart >= 16 &&
+      secondPart <= 31
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function getCheckUrls() {
+  const urls = [];
+
   const configuredUrl = normalizeUrl(
     import.meta.env.VITE_NETWORK_CHECK_URL
   );
 
-  const apiBaseUrl = normalizeUrl(
-    import.meta.env.VITE_API_BASE_URL
-  );
-
-  const urls = [];
-
   if (configuredUrl) {
-    urls.push(configuredUrl);
-  }
-
-  if (apiBaseUrl) {
     try {
-      urls.push(
-        new URL(apiBaseUrl, window.location.origin)
-          .origin
+      const parsedUrl = new URL(
+        configuredUrl,
+        window.location.origin
       );
+
+      /*
+       * A local/private API can keep working without public internet,
+       * so it must not be treated as proof of internet connectivity.
+       */
+      if (
+        !isLocalOrPrivateHostname(
+          parsedUrl.hostname
+        )
+      ) {
+        urls.push(parsedUrl.toString());
+      }
     } catch {
-      // Invalid environment URL is ignored.
+      // Invalid custom heartbeat URL is ignored.
     }
   }
 
-  /*
-   * Public fallbacks prevent a temporary backend outage from being
-   * incorrectly shown as "no internet".
-   */
   urls.push(
     "https://www.gstatic.com/generate_204",
     "https://1.1.1.1/cdn-cgi/trace"
@@ -53,26 +95,42 @@ function getCheckUrls() {
   return [...new Set(urls)];
 }
 
-async function verifyInternetConnection() {
-  if (navigator.onLine === false) {
+function createOfflineFetchError() {
+  const error = new TypeError(
+    "Internet connection is unavailable."
+  );
+
+  error.code = "VIRALO_OFFLINE";
+
+  return error;
+}
+
+async function verifyInternetConnection(
+  nativeFetch
+) {
+  if (
+    navigator.onLine === false ||
+    typeof nativeFetch !== "function"
+  ) {
     return false;
   }
 
   const urls = getCheckUrls();
+
   const controllers = urls.map(
     () => new AbortController()
   );
 
   const timeoutId = window.setTimeout(() => {
-    controllers.forEach((controller) =>
-      controller.abort()
-    );
+    controllers.forEach((controller) => {
+      controller.abort();
+    });
   }, REQUEST_TIMEOUT_MS);
 
   try {
     await Promise.any(
       urls.map((url, index) =>
-        fetch(
+        nativeFetch(
           `${url}${
             url.includes("?") ? "&" : "?"
           }viralo_network_check=${Date.now()}`,
@@ -81,7 +139,9 @@ async function verifyInternetConnection() {
             mode: "no-cors",
             cache: "no-store",
             credentials: "omit",
-            signal: controllers[index].signal,
+            redirect: "follow",
+            signal:
+              controllers[index].signal,
           }
         )
       )
@@ -93,13 +153,20 @@ async function verifyInternetConnection() {
   } finally {
     window.clearTimeout(timeoutId);
 
-    controllers.forEach((controller) =>
-      controller.abort()
-    );
+    controllers.forEach((controller) => {
+      controller.abort();
+    });
   }
 }
 
-export default function NetworkGate({ children }) {
+export default function NetworkGate({
+  children,
+}) {
+  /*
+   * Refresh fix:
+   * When the browser reports online, render the current page immediately.
+   * Real internet verification still runs silently in the background.
+   */
   const initialOnline =
     typeof navigator === "undefined"
       ? true
@@ -110,7 +177,16 @@ export default function NetworkGate({ children }) {
   );
 
   const statusRef = useRef(status);
-  const failedChecksRef = useRef(0);
+
+  const nativeFetchRef = useRef(
+    typeof window !== "undefined"
+      ? window.fetch.bind(window)
+      : null
+  );
+
+  const activeRequestControllersRef =
+    useRef(new Set());
+
   const checkSequenceRef = useRef(0);
   const recoveryTimerRef = useRef(null);
 
@@ -126,10 +202,100 @@ export default function NetworkGate({ children }) {
     []
   );
 
+  const abortApplicationRequests =
+    useCallback(() => {
+      activeRequestControllersRef.current.forEach(
+        (controller) => {
+          controller.abort();
+        }
+      );
+
+      activeRequestControllersRef.current.clear();
+    }, []);
+
+  useEffect(() => {
+    const originalFetch =
+      nativeFetchRef.current;
+
+    if (typeof originalFetch !== "function") {
+      return undefined;
+    }
+
+    const guardedFetch = (
+      input,
+      init = {}
+    ) => {
+      if (
+        statusRef.current !== "online"
+      ) {
+        return Promise.reject(
+          createOfflineFetchError()
+        );
+      }
+
+      const controller =
+        new AbortController();
+
+      activeRequestControllersRef.current.add(
+        controller
+      );
+
+      const externalSignal = init?.signal;
+      let detachExternalAbort = null;
+
+      if (externalSignal) {
+        const forwardAbort = () => {
+          controller.abort(
+            externalSignal.reason
+          );
+        };
+
+        if (externalSignal.aborted) {
+          forwardAbort();
+        } else {
+          externalSignal.addEventListener(
+            "abort",
+            forwardAbort,
+            {
+              once: true,
+            }
+          );
+
+          detachExternalAbort = () => {
+            externalSignal.removeEventListener(
+              "abort",
+              forwardAbort
+            );
+          };
+        }
+      }
+
+      return originalFetch(input, {
+        ...init,
+        signal: controller.signal,
+      }).finally(() => {
+        activeRequestControllersRef.current.delete(
+          controller
+        );
+
+        detachExternalAbort?.();
+      });
+    };
+
+    window.fetch = guardedFetch;
+
+    return () => {
+      abortApplicationRequests();
+
+      if (window.fetch === guardedFetch) {
+        window.fetch = originalFetch;
+      }
+    };
+  }, [abortApplicationRequests]);
+
   const runConnectionCheck = useCallback(
     async ({
       showChecking = false,
-      requireTwoFailures = false,
     } = {}) => {
       const sequence =
         checkSequenceRef.current + 1;
@@ -137,11 +303,15 @@ export default function NetworkGate({ children }) {
       checkSequenceRef.current = sequence;
 
       if (navigator.onLine === false) {
-        failedChecksRef.current = 2;
+        abortApplicationRequests();
         setConnectionStatus("offline");
         return false;
       }
 
+      /*
+       * Do not show the checking screen during normal refresh,
+       * focus checks, or automatic background retries.
+       */
       if (
         showChecking &&
         statusRef.current !== "online"
@@ -150,69 +320,67 @@ export default function NetworkGate({ children }) {
       }
 
       const connected =
-        await verifyInternetConnection();
+        await verifyInternetConnection(
+          nativeFetchRef.current
+        );
 
       if (
-        sequence !== checkSequenceRef.current
+        sequence !==
+        checkSequenceRef.current
       ) {
         return connected;
       }
 
-      if (connected) {
-        const wasDisconnected =
-          statusRef.current === "offline" ||
-          statusRef.current === "checking";
+      if (!connected) {
+        abortApplicationRequests();
+        setConnectionStatus("offline");
+        return false;
+      }
 
-        failedChecksRef.current = 0;
+      const wasDisconnected =
+        statusRef.current === "offline" ||
+        statusRef.current === "checking";
 
-        if (wasDisconnected) {
-          setConnectionStatus("restored");
+      if (wasDisconnected) {
+        setConnectionStatus("restored");
 
-          window.dispatchEvent(
-            new Event("viralo:network-restored")
+        window.dispatchEvent(
+          new Event(
+            "viralo:network-restored"
+          )
+        );
+
+        if (recoveryTimerRef.current) {
+          window.clearTimeout(
+            recoveryTimerRef.current
           );
-
-          if (recoveryTimerRef.current) {
-            window.clearTimeout(
-              recoveryTimerRef.current
-            );
-          }
-
-          recoveryTimerRef.current =
-            window.setTimeout(() => {
-              setConnectionStatus("online");
-            }, 900);
-        } else {
-          setConnectionStatus("online");
         }
 
-        return true;
+        recoveryTimerRef.current =
+          window.setTimeout(() => {
+            setConnectionStatus("online");
+          }, 700);
+      } else {
+        setConnectionStatus("online");
       }
 
-      failedChecksRef.current += 1;
-
-      if (
-        !requireTwoFailures ||
-        failedChecksRef.current >= 2
-      ) {
-        setConnectionStatus("offline");
-      }
-
-      return false;
+      return true;
     },
-    [setConnectionStatus]
+    [
+      abortApplicationRequests,
+      setConnectionStatus,
+    ]
   );
 
   useEffect(() => {
     const handleOffline = () => {
       checkSequenceRef.current += 1;
-      failedChecksRef.current = 2;
+
+      abortApplicationRequests();
       setConnectionStatus("offline");
     };
 
     const handleOnline = () => {
-      failedChecksRef.current = 0;
-
       runConnectionCheck({
         showChecking: true,
       });
@@ -220,13 +388,11 @@ export default function NetworkGate({ children }) {
 
     const handleVisibilityOrFocus = () => {
       if (
-        document.visibilityState === "visible"
+        document.visibilityState ===
+        "visible"
       ) {
         runConnectionCheck({
-          showChecking:
-            statusRef.current !== "online",
-          requireTwoFailures:
-            statusRef.current === "online",
+          showChecking: false,
         });
       }
     };
@@ -235,18 +401,28 @@ export default function NetworkGate({ children }) {
       "offline",
       handleOffline
     );
-    window.addEventListener("online", handleOnline);
+
+    window.addEventListener(
+      "online",
+      handleOnline
+    );
+
     window.addEventListener(
       "focus",
       handleVisibilityOrFocus
     );
+
     document.addEventListener(
       "visibilitychange",
       handleVisibilityOrFocus
     );
 
+    /*
+     * Silent initial check:
+     * Current route stays visible on refresh while connectivity is verified.
+     */
     runConnectionCheck({
-      requireTwoFailures: false,
+      showChecking: false,
     });
 
     return () => {
@@ -254,20 +430,27 @@ export default function NetworkGate({ children }) {
         "offline",
         handleOffline
       );
+
       window.removeEventListener(
         "online",
         handleOnline
       );
+
       window.removeEventListener(
         "focus",
         handleVisibilityOrFocus
       );
+
       document.removeEventListener(
         "visibilitychange",
         handleVisibilityOrFocus
       );
     };
-  }, [runConnectionCheck, setConnectionStatus]);
+  }, [
+    abortApplicationRequests,
+    runConnectionCheck,
+    setConnectionStatus,
+  ]);
 
   useEffect(() => {
     const intervalMs =
@@ -275,63 +458,43 @@ export default function NetworkGate({ children }) {
         ? ONLINE_CHECK_INTERVAL_MS
         : OFFLINE_RETRY_INTERVAL_MS;
 
-    const intervalId = window.setInterval(
-      () => {
+    const intervalId =
+      window.setInterval(() => {
         runConnectionCheck({
           showChecking: false,
-          requireTwoFailures:
-            statusRef.current === "online",
         });
-      },
-      intervalMs
-    );
-
-    return () =>
-      window.clearInterval(intervalId);
-  }, [runConnectionCheck, status]);
-
-  useEffect(() => {
-    const shouldLockScroll =
-      status !== "online";
-
-    const previousOverflow =
-      document.body.style.overflow;
-
-    if (shouldLockScroll) {
-      document.body.style.overflow = "hidden";
-    }
+      }, intervalMs);
 
     return () => {
-      document.body.style.overflow =
-        previousOverflow;
+      window.clearInterval(intervalId);
     };
-  }, [status]);
+  }, [runConnectionCheck, status]);
 
   useEffect(
     () => () => {
+      abortApplicationRequests();
+
       if (recoveryTimerRef.current) {
         window.clearTimeout(
           recoveryTimerRef.current
         );
       }
     },
-    []
+    [abortApplicationRequests]
   );
 
-  return (
-    <>
-      {children}
+  if (status !== "online") {
+    return (
+      <OfflinePage
+        status={status}
+        onRetry={() =>
+          runConnectionCheck({
+            showChecking: true,
+          })
+        }
+      />
+    );
+  }
 
-      {status !== "online" ? (
-        <OfflinePage
-          status={status}
-          onRetry={() =>
-            runConnectionCheck({
-              showChecking: true,
-            })
-          }
-        />
-      ) : null}
-    </>
-  );
+  return children;
 }
