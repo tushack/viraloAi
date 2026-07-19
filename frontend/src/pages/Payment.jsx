@@ -5,8 +5,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
-import { createProPaymentQuote } from "../lib/paymentApi";
-
+import {
+  createProPaymentQuote,
+  getPaymentAccess,
+} from "../lib/paymentApi";
 
 function formatUsdCents(cents) {
   const amount = Number(cents || 0) / 100;
@@ -66,18 +68,33 @@ export default function Payment() {
   const navigate = useNavigate();
   const location = useLocation();
   const upgradeDetails = location.state?.upgrade || null;
+  const [planAccess, setPlanAccess] = useState(null);
 
   const [quote, setQuote] = useState(null);
   const [priceError, setPriceError] = useState("");
+  const isProActive = planAccess?.isPaid === true;
 
   const loadQuote = useCallback(async () => {
     try {
       setPriceError("");
+
+      const accessResponse = await getPaymentAccess();
+      const currentAccess = accessResponse?.access || null;
+
+      setPlanAccess(currentAccess);
+
+      if (currentAccess?.isPaid) {
+        setQuote(null);
+        return;
+      }
+
       const nextQuote = await createProPaymentQuote();
       setQuote(nextQuote || null);
     } catch (error) {
       setQuote(null);
-      setPriceError(error.message || "Could not load live plan price.");
+      setPriceError(
+        error.message || "Could not load live plan price."
+      );
     }
   }, []);
 
@@ -86,17 +103,20 @@ export default function Payment() {
   }, [loadQuote]);
 
   const proPriceLabel = useMemo(() => {
+    if (isProActive) return "Active";
     if (!quote) return "Loading...";
 
     return formatUsdCents(quote.baseUsdCents);
-  }, [quote]);
+  }, [quote, isProActive]);
 
   const proPeriodLabel = quote?.periodDays
     ? `for ${quote.periodDays} days`
     : "for 30 days";
 
   const handlePlanAction = (planName) => {
-    if (planName === "Free") return;
+    if (planName === "Free" || isProActive) {
+      return;
+    }
 
     navigate("/checkout", {
       state: {
@@ -153,13 +173,23 @@ export default function Payment() {
           const Icon = plan.icon;
           const displayPrice = plan.name === "Pro" ? proPriceLabel : plan.price;
           const displayPeriod = plan.name === "Pro" ? proPeriodLabel : plan.period;
+          const isCurrentPlan =
+            plan.name === "Pro"
+              ? isProActive
+              : !isProActive;
 
+          const buttonText =
+            isCurrentPlan
+              ? "Your Current Plan"
+              : plan.name === "Pro"
+                ? "Continue to Secure Checkout"
+                : "Free Plan";
           return (
             <Card
               key={plan.name}
               className={`relative flex h-full overflow-hidden border-white/10 bg-white/[0.04] shadow-2xl shadow-black/20 transition hover:-translate-y-1 hover:bg-white/[0.06] ${plan.highlighted
-                  ? "ring-1 ring-cyan-300/30 shadow-cyan-950/30"
-                  : ""
+                ? "ring-1 ring-cyan-300/30 shadow-cyan-950/30"
+                : ""
                 }`}
             >
               {plan.highlighted && (
@@ -171,8 +201,8 @@ export default function Payment() {
                   <div className="flex min-w-0 items-start gap-4">
                     <div
                       className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ring-1 ${plan.highlighted
-                          ? "bg-cyan-300/15 text-cyan-300 ring-cyan-300/20"
-                          : "bg-white/[0.06] text-zinc-300 ring-white/10"
+                        ? "bg-cyan-300/15 text-cyan-300 ring-cyan-300/20"
+                        : "bg-white/[0.06] text-zinc-300 ring-white/10"
                         }`}
                     >
                       <Icon className="h-7 w-7" />
@@ -191,8 +221,8 @@ export default function Payment() {
 
                   <span
                     className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${plan.highlighted
-                        ? "bg-cyan-300/10 text-cyan-200"
-                        : "bg-white/[0.06] text-zinc-300"
+                      ? "bg-cyan-300/10 text-cyan-200"
+                      : "bg-white/[0.06] text-zinc-300"
                       }`}
                   >
                     {plan.badge}
@@ -227,13 +257,13 @@ export default function Payment() {
                   <Button
                     type="button"
                     onClick={() => handlePlanAction(plan.name)}
-                    disabled={plan.name === "Free"}
+                    disabled={isCurrentPlan}
                     className={`h-14 w-full rounded-full px-5 text-sm font-semibold ${plan.highlighted
-                        ? "bg-cyan-300 text-black shadow-lg shadow-cyan-500/20 hover:bg-cyan-200"
+                        ? "bg-cyan-300 text-black shadow-lg shadow-cyan-500/20 hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-70"
                         : "border border-white/10 bg-white/[0.05] text-zinc-400 opacity-100 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-100"
                       }`}
                   >
-                    {plan.buttonText}
+                    {buttonText}
                   </Button>
                 </div>
               </CardContent>

@@ -7,6 +7,7 @@ const {
   getAdminActivity,
   getAdminCalendarEvents,
   getAdminMediaExports,
+  getAdminPayments,
 } = require("../services/admin.service");
 
 const {
@@ -63,6 +64,26 @@ async function getAdminSummary(req, res) {
   } catch (error) {
     console.error("Admin overview error:", error);
     return sendError(res, error, "Could not load admin overview.");
+  }
+}
+
+async function listAdminPayments(req, res) {
+  try {
+    const result = await getAdminPayments({
+      page: req.query?.page,
+      limit: req.query?.limit,
+      userId: req.query?.userId,
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Admin payments error:", error);
+
+    return sendError(
+      res,
+      error,
+      "Could not load successful payments."
+    );
   }
 }
 
@@ -422,5 +443,5 @@ module.exports = {
   listAdminContactMessages,
   updateAdminContactMessageStatus,
   deleteAdminAccount,
-
+  listAdminPayments,
 };

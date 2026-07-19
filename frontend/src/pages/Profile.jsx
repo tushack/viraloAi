@@ -12,6 +12,7 @@ import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { useAuth } from "../context/AuthContext";
+import { getPaymentAccess } from "../lib/paymentApi";
 import {
   getUserProfile,
   updateUserProfile,
@@ -21,7 +22,7 @@ import {
 export default function Settings() {
   const navigate = useNavigate();
   const { user, authLoading, setAuthModalOpen } = useAuth();
-
+  const [planAccess, setPlanAccess] = useState(null);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -60,8 +61,14 @@ export default function Settings() {
 
       await upsertUserProfile(user);
 
-      const profile = await getUserProfile(user.uid);
+      const [profile, accessResponse] = await Promise.all([
+        getUserProfile(user.uid),
+        getPaymentAccess().catch(() => ({
+          access: null,
+        })),
+      ]);
 
+      setPlanAccess(accessResponse?.access || null);
       setForm({
         name: profile?.name || user.displayName || "",
         email: profile?.email || user.email || "",
@@ -256,7 +263,11 @@ export default function Settings() {
               <p className="mt-1 text-sm text-zinc-500">{form.email}</p>
 
               <div className="mt-5 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs font-semibold text-cyan-200">
-                Free Plan
+                {planAccess?.plan === "pro"
+                  ? "Pro Plan"
+                  : planAccess?.plan === "admin"
+                    ? "Admin Plan"
+                    : "Free Plan"}
               </div>
             </div>
 
@@ -278,10 +289,15 @@ export default function Settings() {
 
               <Button
                 type="button"
-                onClick={() => navigate("/payment")}
-                className="mt-4 h-10 w-full rounded-full bg-white px-5 text-sm font-semibold text-black hover:bg-zinc-200"
+                onClick={() => {
+                  if (!planAccess?.isPaid) {
+                    navigate("/payment");
+                  }
+                }}
+                disabled={planAccess?.isPaid === true}
+                className="mt-4 h-10 w-full rounded-full bg-white px-5 text-sm font-semibold text-black hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                Upgrade Now
+                {planAccess?.isPaid ? "Pro Active" : "Upgrade Now"}
               </Button>
             </div>
           </CardContent>

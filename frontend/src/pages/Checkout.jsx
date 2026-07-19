@@ -17,6 +17,7 @@ import {
   createProPaymentQuote,
   createRazorpayOrder,
   verifyRazorpayPayment,
+  getPaymentAccess,
 } from "../lib/paymentApi";
 import { useAuth } from "../context/AuthContext";
 
@@ -143,6 +144,29 @@ export default function Checkout() {
       setLoadingQuote(true);
       setError("");
       setSuccess("");
+      const accessResponse = await getPaymentAccess();
+      const currentAccess = accessResponse?.access || null;
+
+      if (currentAccess?.isPaid) {
+        const endDate = currentAccess.currentPeriodEnd
+          ? new Date(
+            currentAccess.currentPeriodEnd
+          ).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
+          : "";
+
+        setQuote(null);
+        setError(
+          endDate
+            ? `Your Pro plan is already active until ${endDate}.`
+            : "Your Pro plan is already active."
+        );
+
+        return;
+      }
 
       const nextQuote = await createProPaymentQuote();
 

@@ -768,6 +768,21 @@ export async function getAdminMediaExports({
   );
 }
 
+
+export async function getAdminPayments({
+  page = 1,
+  limit = 50,
+  userId = "",
+} = {}) {
+  return adminRequest(
+    `/payments${buildQueryString({
+      page,
+      limit,
+      userId,
+    })}`
+  );
+}
+
 export async function getAdminAccounts() {
   return adminRequest("/admins");
 }

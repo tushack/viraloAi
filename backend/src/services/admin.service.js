@@ -97,19 +97,19 @@ function withUserProfile(record, userMap) {
     ...record,
     user: user
       ? {
-          uid: user.uid,
-          name: user.name,
-          email: user.email,
-          photoUrl: user.photoUrl,
-          disabled: user.disabled,
-        }
+        uid: user.uid,
+        name: user.name,
+        email: user.email,
+        photoUrl: user.photoUrl,
+        disabled: user.disabled,
+      }
       : {
-          uid: userId,
-          name: "",
-          email: record?.user_email || "",
-          photoUrl: "",
-          disabled: false,
-        },
+        uid: userId,
+        name: "",
+        email: record?.user_email || "",
+        photoUrl: "",
+        disabled: false,
+      },
   };
 }
 
@@ -377,11 +377,11 @@ async function getAdminUsers({ search = "", page = 1, limit = 50 } = {}) {
   const safeLimit = clampInteger(limit, 50, 10, 100);
   const filteredUsers = cleanSearch
     ? allUsers.filter((user) =>
-        [user.name, user.email, user.uid]
-          .join(" ")
-          .toLowerCase()
-          .includes(cleanSearch)
-      )
+      [user.name, user.email, user.uid]
+        .join(" ")
+        .toLowerCase()
+        .includes(cleanSearch)
+    )
     : allUsers;
 
   const start = (safePage - 1) * safeLimit;
@@ -665,6 +665,111 @@ async function getAdminMediaExports({ page = 1, limit = 50, userId } = {}) {
   };
 }
 
+async function getAdminPayments({
+  page = 1,
+  limit = 50,
+  userId = "",
+} = {}) {
+  const safePage = clampInteger(page, 1, 1, 100000);
+  const safeLimit = clampInteger(limit, 50, 10, 100);
+  const from = (safePage - 1) * safeLimit;
+  const to = from + safeLimit - 1;
+
+  let query = supabase
+    .from("payment_orders")
+    .select(
+      [
+        "id",
+        "user_id",
+        "email",
+        "provider",
+        "provider_order_id",
+        "provider_payment_id",
+        "plan",
+        "amount_paise",
+        "currency",
+        "status",
+        "country_code",
+        "paid_at",
+        "created_at",
+        "updated_at",
+      ].join(","),
+      {
+        count: "exact",
+      }
+    )
+    .eq("status", "paid")
+    .order("paid_at", {
+      ascending: false,
+      nullsFirst: false,
+    })
+    .range(from, to);
+
+  if (cleanText(userId, 200)) {
+    query = query.eq(
+      "user_id",
+      cleanText(userId, 200)
+    );
+  }
+
+  const { data, count, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  const userIds = [
+    ...new Set(
+      (data || [])
+        .map((item) => item.user_id)
+        .filter(Boolean)
+    ),
+  ];
+
+  const [userMap, subscriptionResult] = await Promise.all([
+    getFirebaseUsersByIds(userIds),
+    userIds.length
+      ? supabase
+        .from("user_subscriptions")
+        .select(
+          "user_id, plan, status, started_at, current_period_end"
+        )
+        .in("user_id", userIds)
+      : Promise.resolve({
+        data: [],
+        error: null,
+      }),
+  ]);
+
+  if (subscriptionResult.error) {
+    throw subscriptionResult.error;
+  }
+
+  const subscriptionMap = new Map(
+    (subscriptionResult.data || []).map((item) => [
+      item.user_id,
+      item,
+    ])
+  );
+
+  return {
+    items: (data || []).map((record) => ({
+      ...withUserProfile(record, userMap),
+      subscription:
+        subscriptionMap.get(record.user_id) || null,
+    })),
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total: count || 0,
+      totalPages: Math.max(
+        1,
+        Math.ceil((count || 0) / safeLimit)
+      ),
+    },
+  };
+}
+
 module.exports = {
   getAdminOverview,
   getAdminUsers,
@@ -674,4 +779,5 @@ module.exports = {
   getAdminActivity,
   getAdminCalendarEvents,
   getAdminMediaExports,
+  getAdminPayments,
 };

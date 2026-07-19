@@ -24,6 +24,28 @@ async function getAuthHeaders() {
   };
 }
 
+export async function getPaymentAccess() {
+  const response = await fetch(
+    `${API_BASE_URL}/payments/access`,
+    {
+      method: "GET",
+      headers: await getAuthHeaders(),
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw createApiError(
+      data,
+      response.status,
+      "Could not load your current plan."
+    );
+  }
+
+  return data;
+}
+
 export async function createProPaymentQuote() {
   const response = await fetch(`${API_BASE_URL}/payments/quote`, {
     method: "POST",

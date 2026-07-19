@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   StickyNote,
   MessageSquare,
+  CreditCard,
   Users,
   X,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import {
   getAdminUser,
   getAdminUsers,
   updateAdminUserStatus,
+  getAdminPayments,
 } from "../lib/api";
 
 const TABS = [
@@ -45,8 +47,8 @@ const TABS = [
   { id: "activity", label: "Activity", icon: Clock3 },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "exports", label: "Media Exports", icon: Download },
+  { id: "payments", label: "Payments", icon: CreditCard },
   { id: "contactMessages", label: "Contact Messages", icon: MessageSquare },
-
 ];
 
 function formatDate(value, fallback = "—") {
@@ -85,6 +87,22 @@ function formatBytes(value) {
 
   return `${bytes} B`;
 }
+
+function formatPaymentAmount(value, currency) {
+  const amount = Number(value || 0) / 100;
+
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: currency || "INR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency || ""} ${amount.toFixed(2)}`.trim();
+  }
+}
+
 
 function getUserLabel(user) {
   return (
@@ -234,6 +252,10 @@ export default function AdminPanel() {
     items: [],
     pagination: null,
   });
+  const [paymentsData, setPaymentsData] = useState({
+    items: [],
+    pagination: null,
+  });
   const [mediaData, setMediaData] = useState({ items: [], pagination: null });
   const [userSearch, setUserSearch] = useState("");
   const [activityModule, setActivityModule] = useState("");
@@ -301,23 +323,54 @@ export default function AdminPanel() {
     setMediaData(data);
   };
 
+  const loadPayments = async (page = 1) => {
+    const data = await getAdminPayments({
+      page,
+      limit: 50,
+    });
+
+    setPaymentsData(data);
+  };
+
   const refreshAll = async () => {
     setLoading(true);
     setError("");
 
     try {
-      const [access, summary, users, activity, calendar, media] = await Promise.all([
+      const [
+        access,
+        summary,
+        users,
+        activity,
+        calendar,
+        media,
+        payments,
+      ] = await Promise.all([
         getAdminAccess(),
         getAdminOverview(days),
-        getAdminUsers({ page: 1, limit: 50, search: userSearch }),
+        getAdminUsers({
+          page: 1,
+          limit: 50,
+          search: userSearch,
+        }),
         getAdminActivity({
           page: 1,
           limit: 50,
           module: activityModule,
           status: activityStatus,
         }),
-        getAdminCalendarEvents({ page: 1, limit: 50 }),
-        getAdminMediaExports({ page: 1, limit: 50 }),
+        getAdminCalendarEvents({
+          page: 1,
+          limit: 50,
+        }),
+        getAdminMediaExports({
+          page: 1,
+          limit: 50,
+        }),
+        getAdminPayments({
+          page: 1,
+          limit: 50,
+        }),
       ]);
 
       setAdminAccess(access);
@@ -326,6 +379,7 @@ export default function AdminPanel() {
       setActivityData(activity);
       setCalendarData(calendar);
       setMediaData(media);
+      setPaymentsData(payments);
     } catch (requestError) {
       setError(requestError.message || "Could not load admin data.");
     } finally {
@@ -458,6 +512,9 @@ export default function AdminPanel() {
       if (tab === "activity") await loadActivity(activityData.pagination?.page || 1);
       if (tab === "calendar") await loadCalendar(calendarData.pagination?.page || 1);
       if (tab === "exports") await loadMedia(mediaData.pagination?.page || 1);
+      if (tab === "payments") {
+        await loadPayments(paymentsData.pagination?.page || 1);
+      }
       if (tab === "access") setAdminAccessRefreshKey((current) => current + 1);
 
 
@@ -1261,6 +1318,110 @@ export default function AdminPanel() {
                 </div>
                 {!mediaData.items?.length && <EmptyState text="No media exports found." />}
                 <Pagination pagination={mediaData.pagination} onPageChange={loadMedia} />
+              </SectionCard>
+            </section>
+          )}
+
+          {tab === "payments" && (
+            <section className="mt-5">
+              <SectionCard
+                title="Successful Payments"
+                description="Verified payments with activated Pro subscriptions."
+              >
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[1150px] text-left text-sm">
+                    <thead className="border-b border-white/10 bg-white/[0.03] text-xs uppercase tracking-[0.14em] text-zinc-500">
+                      <tr>
+                        <th className="px-5 py-4 font-medium">User</th>
+                        <th className="px-5 py-4 font-medium">Plan</th>
+                        <th className="px-5 py-4 font-medium">Amount</th>
+                        <th className="px-5 py-4 font-medium">Payment ID</th>
+                        <th className="px-5 py-4 font-medium">Purchased</th>
+                        <th className="px-5 py-4 font-medium">Valid Until</th>
+                        <th className="px-5 py-4 font-medium">Status</th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-white/10">
+                      {(paymentsData.items || []).map((item) => (
+                        <tr
+                          key={item.id}
+                          className="transition hover:bg-white/[0.035]"
+                        >
+                          <td className="px-5 py-4">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                item.user_id && openUser(item.user_id)
+                              }
+                              className="flex items-center gap-3 text-left"
+                            >
+                              <UserAvatar user={item.user} />
+
+                              <div className="min-w-0">
+                                <p className="max-w-52 truncate font-medium text-white">
+                                  {getUserLabel(item.user)}
+                                </p>
+                                <p className="mt-1 max-w-52 truncate text-xs text-zinc-500">
+                                  {item.email ||
+                                    item.user?.email ||
+                                    item.user_id}
+                                </p>
+                              </div>
+                            </button>
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-semibold uppercase text-cyan-100">
+                              {item.plan || "pro"}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-4 font-semibold text-white">
+                            {formatPaymentAmount(
+                              item.amount_paise,
+                              item.currency
+                            )}
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <p className="max-w-56 truncate text-xs text-zinc-300">
+                              {item.provider_payment_id || "—"}
+                            </p>
+                            <p className="mt-1 max-w-56 truncate text-[11px] text-zinc-600">
+                              {item.provider_order_id || "—"}
+                            </p>
+                          </td>
+
+                          <td className="px-5 py-4 text-xs text-zinc-400">
+                            {formatDate(item.paid_at || item.created_at)}
+                          </td>
+
+                          <td className="px-5 py-4 text-xs text-zinc-400">
+                            {formatDate(
+                              item.subscription?.current_period_end
+                            )}
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                              Paid
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {!paymentsData.items?.length && (
+                  <EmptyState text="No successful payments found." />
+                )}
+
+                <Pagination
+                  pagination={paymentsData.pagination}
+                  onPageChange={loadPayments}
+                />
               </SectionCard>
             </section>
           )}

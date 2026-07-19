@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { getPaymentAccess } from "../../lib/paymentApi";
 import {
   Bookmark,
   Clock,
@@ -83,6 +84,7 @@ export default function Sidebar({
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
+  const [planAccess, setPlanAccess] = useState(null);
 
   const accountMenuRef = useRef(null);
   const navigate = useNavigate();
@@ -152,6 +154,31 @@ export default function Sidebar({
     };
   }, [accountMenuOpen]);
 
+  useEffect(() => {
+    let active = true;
+
+    if (!user?.uid) {
+      setPlanAccess(null);
+      return undefined;
+    }
+
+    getPaymentAccess()
+      .then((response) => {
+        if (active) {
+          setPlanAccess(response?.access || null);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setPlanAccess(null);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
+
   const displayName =
     userProfile?.name ||
     userProfile?.fullName ||
@@ -171,10 +198,20 @@ export default function Sidebar({
     "";
 
   const displayPlan =
+    planAccess?.plan ||
     userProfile?.plan ||
     userProfile?.subscription_plan ||
     userProfile?.subscriptionPlan ||
     "free";
+
+  const displayPlanLabel =
+    displayPlan === "pro"
+      ? "Pro"
+      : displayPlan === "admin"
+        ? "Admin"
+        : "Free";
+
+  const hasFullAccess = planAccess?.isPaid === true;
 
   const handleToggleSidebarCollapse = () => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -402,7 +439,7 @@ export default function Sidebar({
                   </p>
 
                   <span className="mt-1 inline-flex rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-200">
-                    {displayPlan} plan
+                    {displayPlanLabel} plan
                   </span>
                 </div>
 
@@ -427,15 +464,17 @@ export default function Sidebar({
                     : "bottom-[calc(100%+0.6rem)] right-0"
                     }`}
                 >
-                  <button
-                    type="button"
-                    onClick={handleUpgradeClick}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-200 hover:bg-white/[0.07] hover:text-white"
-                    role="menuitem"
-                  >
-                    <CreditCard className="h-4 w-4 text-cyan-300" />
-                    <span>Upgrade Plan</span>
-                  </button>
+                  {!hasFullAccess && (
+                    <button
+                      type="button"
+                      onClick={handleUpgradeClick}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-200 hover:bg-white/[0.07] hover:text-white"
+                      role="menuitem"
+                    >
+                      <CreditCard className="h-4 w-4 text-cyan-300" />
+                      <span>Upgrade Plan</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"

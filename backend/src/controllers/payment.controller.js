@@ -3,12 +3,16 @@ const {
   createRazorpayOrder,
   verifyRazorpayPayment,
   handleRazorpayWebhook,
+  getCurrentPlanAccess,
 } = require("../services/payment.service");
 
 function sendError(res, error, fallbackMessage) {
   return res.status(error?.statusCode || 500).json({
     message: error?.message || fallbackMessage,
     ...(error?.code ? { code: error.code } : {}),
+    ...(error?.currentPeriodEnd
+      ? { currentPeriodEnd: error.currentPeriodEnd }
+      : {}),
   });
 }
 
@@ -46,10 +50,32 @@ function getCheckoutCountry(req) {
   return /^[A-Z]{2}$/.test(defaultCountry) ? defaultCountry : "IN";
 }
 
+async function getProAccess(req, res) {
+  try {
+    const access = await getCurrentPlanAccess({
+      userId: req.user.uid,
+      email: req.user.email,
+    });
+
+    return res.status(200).json({
+      access,
+    });
+  } catch (error) {
+    console.error("Get payment access error:", error);
+
+    return sendError(
+      res,
+      error,
+      "Could not load subscription access."
+    );
+  }
+}
+
 async function createProQuote(req, res) {
   try {
     const quote = await createPaymentQuote({
       userId: req.user.uid,
+      email: req.user.email,
       countryCode: getCheckoutCountry(req),
     });
 
@@ -106,6 +132,7 @@ async function razorpayWebhook(req, res) {
 }
 
 module.exports = {
+  getProAccess,
   createProQuote,
   createProOrder,
   verifyProPayment,

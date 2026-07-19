@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-
+import Onboarding from "./pages/Onboarding";
+import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import FreshTopics from "./pages/FreshTopics";
 import Trends from "./pages/Trends";
@@ -26,20 +27,87 @@ import HelpCenter from "./pages/HelpCenter";
 import LegalInfoPage from "./pages/LegalInfoPage";
 import ContactUs from "./pages/ContactUs";
 
-function ProtectedRoute({ children }) {
+
+function DashboardRoute({ children }) {
   const { user, authLoading } = useAuth();
 
   if (authLoading) {
-    return null;
+    return <PageLoader />;
   }
 
   if (!user) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/" replace />;
+  }
+
+  const onboardingCompleted =
+    localStorage.getItem(
+      `viraloOnboardingCompleted:${user.uid}`
+    ) === "true";
+
+  if (!onboardingCompleted) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   return children;
 }
 
+/**
+ * Firebase authentication status check hote time
+ * white/blank screen ki jagah loader show karega.
+ */
+function PageLoader({ message = "Loading Viralo AI..." }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#050711] px-4 text-white">
+      <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4 text-sm text-zinc-300 shadow-xl shadow-black/20">
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
+
+        <span>{message}</span>
+      </div>
+    </main>
+  );
+}
+
+/**
+ * Root route handling:
+ *
+ * Logged-out user  -> Landing Page
+ * Logged-in user   -> Dashboard
+ */
+function HomeRoute() {
+  const { user, authLoading } = useAuth();
+
+  if (authLoading) {
+    return <PageLoader />;
+  }
+
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <Landing />;
+}
+
+/**
+ * Protected pages ko sirf logged-in users access kar sakte hain.
+ */
+function ProtectedRoute({ children }) {
+  const { user, authLoading } = useAuth();
+
+  if (authLoading) {
+    return <PageLoader />;
+  }
+
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}
+
+/**
+ * Admin page ke liye normal login ke saath
+ * backend admin access bhi verify karega.
+ */
 function AdminRoute({ children }) {
   const { user, authLoading } = useAuth();
   const [accessStatus, setAccessStatus] = useState("checking");
@@ -53,7 +121,6 @@ function AdminRoute({ children }) {
       };
     }
 
-    // Not logged in = admin page should look unavailable.
     if (!user) {
       setAccessStatus("denied");
 
@@ -71,8 +138,6 @@ function AdminRoute({ children }) {
         }
       })
       .catch(() => {
-        // Backend returns 401/403 for non-admin users.
-        // Frontend intentionally shows the normal 404 page.
         if (active) {
           setAccessStatus("denied");
         }
@@ -84,14 +149,11 @@ function AdminRoute({ children }) {
   }, [authLoading, user?.uid]);
 
   if (authLoading || accessStatus === "checking") {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[#050711] px-4 text-white">
-        <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4 text-sm text-zinc-300 shadow-xl shadow-black/20">
-          <span className="h-5 w-5 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
-          Checking admin access...
-        </div>
-      </main>
-    );
+    return <PageLoader message="Checking admin access..." />;
+  }
+
+  if (!user) {
+    return <Navigate to="/" replace />;
   }
 
   if (accessStatus !== "allowed") {
@@ -107,9 +169,26 @@ function App() {
       <AuthModal />
 
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* Public root route */}
+        <Route path="/" element={<HomeRoute />} />
+        <Route
+          path="/onboarding"
+          element={
+            <ProtectedRoute>
+              <Onboarding />
+            </ProtectedRoute>
+          }
+        />
 
-        <Route path="/dashboard" element={<Dashboard />} />
+        {/* Protected Dashboard */}
+        <Route
+          path="/dashboard"
+          element={
+            <DashboardRoute>
+              <Dashboard />
+            </DashboardRoute>
+          }
+        />
 
         <Route
           path="/fresh-topics"
@@ -245,11 +324,15 @@ function App() {
             </AdminRoute>
           }
         />
+
+        {/* Public informational pages */}
         <Route path="/help" element={<HelpCenter />} />
         <Route path="/about" element={<LegalInfoPage pageKey="about" />} />
         <Route path="/contact" element={<ContactUs />} />
         <Route path="/terms" element={<LegalInfoPage pageKey="terms" />} />
         <Route path="/privacy" element={<LegalInfoPage pageKey="privacy" />} />
+
+        {/* Unknown URL */}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

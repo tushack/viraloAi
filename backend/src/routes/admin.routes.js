@@ -16,7 +16,7 @@ const {
   listAdminContactMessages,
   updateAdminContactMessageStatus,
   deleteAdminAccount,
-
+  listAdminPayments,
 } = require("../controllers/admin.controller");
 
 const {
@@ -89,5 +89,6 @@ router.delete(
   requireAdminRole("owner"),
   deleteAdminAccount
 );
+router.get("/payments", listAdminPayments);
 
 module.exports = router;

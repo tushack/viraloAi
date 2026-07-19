@@ -3,18 +3,28 @@ const https = require("https");
 const Razorpay = require("razorpay");
 
 const supabase = require("../config/supabase");
-const { activatePaidSubscription } = require("./planAccess.service");
-
+const {
+  activatePaidSubscription,
+  getPlanAccessForUser,
+} = require("./planAccess.service");
 let razorpayClient = null;
 let fxRateCache = {
   usdToInr: null,
   expiresAt: 0,
 };
 
-function createHttpError(message, statusCode = 400, code = "") {
+function createHttpError(
+  message,
+  statusCode = 400,
+  code = "",
+  extra = {}
+) {
   const error = new Error(message);
   error.statusCode = statusCode;
   error.code = code;
+
+  Object.assign(error, extra);
+
   return error;
 }
 
@@ -324,10 +334,87 @@ function toPublicQuote(quote) {
   };
 }
 
-async function createPaymentQuote({ userId, countryCode }) {
+function formatSubscriptionEnd(value) {
+  const date = new Date(value || "");
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
+async function getCurrentPlanAccess({ userId, email }) {
+  const access = await getPlanAccessForUser({
+    userId,
+    email,
+  });
+
+  return {
+    plan: access.plan,
+    isPaid: access.isPaid,
+    isAdmin: access.isAdmin,
+    status:
+      access.subscription?.status ||
+      (access.isAdmin ? "active" : "inactive"),
+    startedAt: access.subscription?.started_at || null,
+    currentPeriodEnd:
+      access.subscription?.current_period_end || null,
+  };
+}
+
+async function ensureProPurchaseAllowed({ userId, email }) {
+  const access = await getCurrentPlanAccess({
+    userId,
+    email,
+  });
+
+  if (!access.isPaid) {
+    return access;
+  }
+
+  if (access.isAdmin) {
+    throw createHttpError(
+      "Admin accounts already have full Pro access.",
+      409,
+      "PRO_PLAN_ALREADY_ACTIVE"
+    );
+  }
+
+  const formattedEnd = formatSubscriptionEnd(
+    access.currentPeriodEnd
+  );
+
+  throw createHttpError(
+    formattedEnd
+      ? `Your Pro plan is already active until ${formattedEnd}. You can purchase again after it expires.`
+      : "Your Pro plan is already active.",
+    409,
+    "PRO_PLAN_ALREADY_ACTIVE",
+    {
+      currentPeriodEnd: access.currentPeriodEnd,
+    }
+  );
+}
+
+async function createPaymentQuote({
+  userId,
+  email,
+  countryCode,
+}) {
   if (!userId) {
     throw createHttpError("Authenticated user is required.", 401);
   }
+
+  await ensureProPurchaseAllowed({
+    userId,
+    email,
+  });
 
   const config = getPaymentConfig();
   const resolvedCountryCode = normalizeCountryCode(countryCode) || "IN";
@@ -348,20 +435,20 @@ async function createPaymentQuote({ userId, countryCode }) {
 
   // rupes uses
   if (resolvedCountryCode === "IN") {
-  fxRate = await getLiveUsdToInrRate();
-  currency = "INR";
+    fxRate = await getLiveUsdToInrRate();
+    currency = "INR";
 
-  const testInrPaise = Number(process.env.VIRALO_PRO_TEST_INR_PAISE || 0);
+    const testInrPaise = Number(process.env.VIRALO_PRO_TEST_INR_PAISE || 0);
 
-  totalMinor =
-    Number.isSafeInteger(testInrPaise) && testInrPaise > 0
-      ? testInrPaise
-      : Math.round(config.baseUsdCents * fxRate);
+    totalMinor =
+      Number.isSafeInteger(testInrPaise) && testInrPaise > 0
+        ? testInrPaise
+        : Math.round(config.baseUsdCents * fxRate);
 
-  taxBps = config.indiaTaxBps;
-}
+    taxBps = config.indiaTaxBps;
+  }
 
-/////////////////////////////////////
+  /////////////////////////////////////
 
   const breakdown = calculateTaxInclusiveBreakdown(totalMinor, taxBps);
   const expiresAt = getQuoteExpiry(config);
@@ -487,6 +574,11 @@ async function createRazorpayOrder({ userId, email, quoteId }) {
   if (!userId) {
     throw createHttpError("Authenticated user is required.", 401);
   }
+
+  await ensureProPurchaseAllowed({
+    userId,
+    email,
+  });
 
   const config = getPaymentConfig();
   const razorpay = getRazorpayClient();
@@ -946,4 +1038,5 @@ module.exports = {
   createRazorpayOrder,
   verifyRazorpayPayment,
   handleRazorpayWebhook,
+  getCurrentPlanAccess,
 };
