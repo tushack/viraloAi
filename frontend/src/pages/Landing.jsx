@@ -274,8 +274,8 @@ function ProductPreview() {
                   <div
                     key={label}
                     className={`flex items-center gap-2 rounded-xl p-2.5 text-xs ${active
-                        ? "bg-white/[0.08] text-white"
-                        : "text-zinc-500"
+                      ? "bg-white/[0.08] text-white"
+                      : "text-zinc-500"
                       }`}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
@@ -1126,6 +1126,12 @@ export default function Landing() {
             </a>
             <a href="/contact" className="hover:text-slate-950">
               Contact
+            </a>
+            <a
+              href="/refund-cancellation"
+              className="hover:text-slate-950"
+            >
+              Refunds
             </a>
           </div>
           <p className="text-xs text-slate-400">

@@ -4,8 +4,7 @@ import {
   CheckCircle2,
   FileText,
   Mail,
-  MapPin,
-  ShieldCheck,
+  Globe2, ShieldCheck,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -15,23 +14,20 @@ const SUPPORT_EMAIL =
   String(import.meta.env.VITE_SUPPORT_EMAIL || "").trim() ||
   "support@viraloai.com";
 
-const BUSINESS_NAME =
-  String(import.meta.env.VITE_BUSINESS_LEGAL_NAME || "").trim() ||
-  "Viralo AI";
+const PROJECT_NAME = "Viralo AI";
 
-const BUSINESS_ADDRESS = String(
-  import.meta.env.VITE_BUSINESS_ADDRESS || ""
-).trim();
+const PROJECT_STATUS =
+  String(import.meta.env.VITE_PROJECT_STATUS || "").trim() ||
+  "Independent remote software project. Viralo AI is not currently incorporated or registered as a company and does not operate a public office.";
 
-const LAST_UPDATED = "July 5, 2026";
+const LAST_UPDATED = "July 21, 2026";
 
 const PAGE_CONTENT = {
   about: {
-    eyebrow: "Company Information",
+    eyebrow: "Project Information",
     title: "About Viralo AI",
     description:
-      "Viralo AI is a SaaS platform built to help creators and social-media teams research public trends, develop content ideas, plan content, and improve their creator workflow.",
-    icon: Building2,
+      "Viralo AI is an independent remote software project built to help creators and social-media teams research public trends, develop content ideas, plan content, and improve their creator workflow.", icon: Building2,
     sections: [
       {
         title: "What we provide",
@@ -63,6 +59,13 @@ const PAGE_CONTENT = {
     icon: Mail,
     sections: [
       {
+        title: "Project status",
+        paragraphs: [
+          "Viralo AI is currently operated as an independent remote software project. It is not presently incorporated or registered as a company and does not maintain a public office.",
+          "Product, account, billing, privacy, compliance, and partnership communication is handled remotely through the support email provided on this website.",
+        ],
+      },
+      {
         title: "Support email",
         paragraphs: [
           "For account and product support, email us at the address below. Please include the email address registered with your Viralo AI account so that we can assist you faster.",
@@ -70,11 +73,11 @@ const PAGE_CONTENT = {
         contactType: "email",
       },
       {
-        title: "Business information",
+        title: "Project information",
         paragraphs: [
-          "Business and compliance enquiries are handled through the same support channel. We reply during our normal business working hours.",
+          "Viralo AI currently operates as an independent remote software project. Product, billing, compliance, and partnership enquiries are handled through the support channel.",
         ],
-        contactType: "address",
+        contactType: "project",
       },
       {
         title: "Typical support topics",
@@ -105,7 +108,8 @@ const PAGE_CONTENT = {
       {
         title: "2. Our service",
         paragraphs: [
-          "Viralo AI is a software-as-a-service platform for social-media research, content planning, AI-assisted content workflows, and creator productivity. Features may change, improve, or be retired as the product evolves.",
+          "Viralo AI is an independent remote software project providing software-as-a-service tools for social-media research, content planning, AI-assisted content workflows, and creator productivity.",
+          "Viralo AI is not currently incorporated or registered as a company. Features may change, improve, or be retired as the product evolves.",
         ],
       },
       {
@@ -117,8 +121,9 @@ const PAGE_CONTENT = {
       {
         title: "4. Paid plans, cancellation, and refunds",
         paragraphs: [
-          "Where a paid plan is available, the applicable price, billing cycle, and included features are shown before checkout. You may request cancellation or billing support by contacting us at the support email shown on this website.",
-          "Refund eligibility, where applicable, is assessed according to the plan purchased, usage of the service, and applicable law. We do not provide refunds for services already substantially used except where required by law.",
+          "Where a paid plan is available, the applicable price, access period, currency, tax treatment, and included features are shown before checkout.",
+          "The current fixed-duration Pro plan does not automatically renew unless a future checkout page expressly states otherwise.",
+          "Refund eligibility and the request process are explained in the Refund & Cancellation Policy. Refund rights required by applicable law are not excluded by these Terms.",
         ],
       },
       {
@@ -211,6 +216,10 @@ const RELATED_PAGES = [
   { label: "Contact Us", path: "/contact" },
   { label: "Terms of Service", path: "/terms" },
   { label: "Privacy Policy", path: "/privacy" },
+  {
+    label: "Refund & Cancellation",
+    path: "/refund-cancellation",
+  },
 ];
 
 export default function LegalInfoPage({ pageKey }) {
@@ -297,16 +306,18 @@ export default function LegalInfoPage({ pageKey }) {
                 </a>
               ) : null}
 
-              {section.contactType === "address" ? (
+              {section.contactType === "project" ? (
                 <div className="mt-4 flex items-start gap-3 rounded-2xl border border-white/10 bg-black/10 p-4 text-sm text-zinc-300">
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200" />
+                  <Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200" />
+
                   <span>
                     <strong className="font-semibold text-white">
-                      {BUSINESS_NAME}
+                      {PROJECT_NAME}
                     </strong>
+
                     <br />
-                    {BUSINESS_ADDRESS ||
-                      "Add your registered business address through VITE_BUSINESS_ADDRESS before production deployment."}
+
+                    {PROJECT_STATUS}
                   </span>
                 </div>
               ) : null}

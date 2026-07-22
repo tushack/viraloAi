@@ -5,7 +5,7 @@ import {
   CircleHelp,
   Loader2,
   Mail,
-  MapPin,
+  Globe2,
   Send,
   ShieldCheck,
 } from "lucide-react";
@@ -20,13 +20,11 @@ const SUPPORT_EMAIL =
   String(import.meta.env.VITE_SUPPORT_EMAIL || "").trim() ||
   "support@viraloai.com";
 
-const BUSINESS_NAME =
-  String(import.meta.env.VITE_BUSINESS_LEGAL_NAME || "").trim() ||
-  "Viralo AI";
+const PROJECT_NAME = "Viralo AI";
 
-const BUSINESS_ADDRESS = String(
-  import.meta.env.VITE_BUSINESS_ADDRESS || ""
-).trim();
+const PROJECT_STATUS =
+  String(import.meta.env.VITE_PROJECT_STATUS || "").trim() ||
+  "Independent remote software project. Viralo AI is not currently incorporated or registered as a company and does not operate a public office.";
 
 const EMPTY_FORM = {
   fullName: "",
@@ -99,7 +97,7 @@ export default function ContactUs() {
 
       setSuccessMessage(
         result?.message ||
-          "Thanks for contacting us. Our team will get back to you soon."
+        "Thanks for contacting us. Our team will get back to you soon."
       );
 
       setForm((current) => ({
@@ -110,7 +108,7 @@ export default function ContactUs() {
     } catch (error) {
       setFormError(
         error?.message ||
-          "We could not send your message. Please try again shortly."
+        "We could not send your message. Please try again shortly."
       );
     } finally {
       setSubmitting(false);
@@ -169,17 +167,19 @@ export default function ContactUs() {
               </a>
 
               <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/10 p-4">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200" />
+                <Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-200" />
+
                 <span>
                   <span className="block text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Business details
+                    Project details
                   </span>
+
                   <span className="mt-1 block text-sm font-medium text-white">
-                    {BUSINESS_NAME}
+                    {PROJECT_NAME}
                   </span>
+
                   <span className="mt-1 block text-sm leading-6 text-zinc-400">
-                    {BUSINESS_ADDRESS ||
-                      "Add your registered business address before production deployment."}
+                    {PROJECT_STATUS}
                   </span>
                 </span>
               </div>

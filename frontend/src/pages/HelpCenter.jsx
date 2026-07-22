@@ -1,4 +1,13 @@
-import { ArrowRight, Building2, CircleHelp, FileText, Mail, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Building2,
+  CircleHelp,
+  FileText,
+  Mail,
+  RefreshCcw,
+  ShieldCheck,
+} from "lucide-react";
+
 import { Link } from "react-router-dom";
 
 import DashboardLayout from "../components/layout/DashboardLayout";
@@ -11,14 +20,14 @@ const helpItems = [
   {
     title: "About Viralo AI",
     description:
-      "Learn what Viralo AI does and how the platform supports creators and social-media teams.",
+      "Learn what Viralo AI does and how this independent remote software project supports creators.",
     path: "/about",
     icon: Building2,
   },
   {
     title: "Contact Us",
     description:
-      "Reach our support team for account, billing, product, or business enquiries.",
+      "Reach our support team for account, billing, product, refund, or project enquiries.",
     path: "/contact",
     icon: Mail,
   },
@@ -35,6 +44,13 @@ const helpItems = [
       "Understand what information we collect, why we use it, and the choices available to users.",
     path: "/privacy",
     icon: ShieldCheck,
+  },
+  {
+    title: "Refund & Cancellation",
+    description:
+      "Review the refund window, eligibility conditions, cancellation process, and expected timelines.",
+    path: "/refund-cancellation",
+    icon: RefreshCcw,
   },
 ];
 
@@ -60,8 +76,8 @@ export default function HelpCenter() {
           </h1>
 
           <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-300 sm:text-base">
-            Access company information, support details, and the policies that
-            govern use of Viralo AI.
+            Access project information, support details, billing
+            policies, and the terms that govern use of Viralo AI.
           </p>
         </div>
 
@@ -100,9 +116,10 @@ export default function HelpCenter() {
             <p className="text-sm font-semibold text-white">
               Need direct support?
             </p>
+
             <p className="mt-1 text-sm text-zinc-400">
-              Email our team and include your registered account email for a
-              faster response.
+              Email our team and include your registered account
+              email for a faster response.
             </p>
           </div>
 

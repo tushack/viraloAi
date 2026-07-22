@@ -8,8 +8,11 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
-
+import {
+  Link,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -193,7 +196,7 @@ export default function Checkout() {
       setQuote(null);
       setError(
         quoteError.message ||
-          "Could not load live checkout price."
+        "Could not load live checkout price."
       );
     } finally {
       setLoadingQuote(false);
@@ -327,7 +330,7 @@ export default function Checkout() {
       if (isQuoteError(paymentError)) {
         setError(
           paymentError.message ||
-            "Your price quote expired. A new quote is being loaded."
+          "Your price quote expired. A new quote is being loaded."
         );
         await loadQuote();
       } else {
@@ -457,9 +460,8 @@ export default function Checkout() {
                 className="h-9 rounded-full border border-white/10 bg-white/[0.04] px-3 text-xs text-zinc-300 hover:bg-white/[0.09]"
               >
                 <RefreshCw
-                  className={`h-3.5 w-3.5 ${
-                    loadingQuote ? "animate-spin" : ""
-                  }`}
+                  className={`h-3.5 w-3.5 ${loadingQuote ? "animate-spin" : ""
+                    }`}
                 />
                 Refresh
               </Button>
@@ -499,8 +501,8 @@ export default function Checkout() {
                     label={
                       quote.taxBps > 0
                         ? `Tax included (${taxPercent.toFixed(
-                            2
-                          )}%)`
+                          2
+                        )}%)`
                         : "Tax included"
                     }
                     value={formatMinorAmount(
@@ -553,6 +555,36 @@ export default function Checkout() {
                     </>
                   )}
                 </Button>
+                <p className="mt-4 text-center text-xs leading-5 text-zinc-500">
+                  By continuing, you agree to the{" "}
+                  <Link
+                    to="/terms"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-cyan-200 hover:text-cyan-100"
+                  >
+                    Terms of Service
+                  </Link>
+                  ,{" "}
+                  <Link
+                    to="/privacy"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-cyan-200 hover:text-cyan-100"
+                  >
+                    Privacy Policy
+                  </Link>{" "}
+                  and{" "}
+                  <Link
+                    to="/refund-cancellation"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-cyan-200 hover:text-cyan-100"
+                  >
+                    Refund & Cancellation Policy
+                  </Link>
+                  .
+                </p>
               </>
             ) : (
               <div className="mt-7 rounded-2xl border border-red-300/20 bg-red-500/10 p-4 text-sm text-red-100">

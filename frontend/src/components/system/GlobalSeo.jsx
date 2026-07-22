@@ -44,6 +44,12 @@ const PUBLIC_ROUTE_META = {
       "Learn how Viralo AI collects, uses, stores, protects, and deletes account, creator-workspace, and payment-status information.",
     type: "article",
   },
+  "/refund-cancellation": {
+    title: "Refund & Cancellation Policy | Viralo AI",
+    description:
+      "Read the Viralo AI refund window, cancellation process, eligibility conditions, request procedure, and expected payment-provider timelines.",
+    type: "article",
+  },
 };
 
 const PRIVATE_ROUTE_META = {
@@ -460,12 +466,12 @@ export default function GlobalSeo() {
     replaceStructuredData(
       isPublic
         ? createPublicStructuredData({
-            path,
-            title: metadata.title,
-            description: metadata.description,
-            canonicalUrl,
-            siteOrigin,
-          })
+          path,
+          title: metadata.title,
+          description: metadata.description,
+          canonicalUrl,
+          siteOrigin,
+        })
         : null
     );
   }, [path]);

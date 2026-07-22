@@ -31,6 +31,7 @@ import HelpCenter from "./pages/HelpCenter";
 import LegalInfoPage from "./pages/LegalInfoPage";
 import ContactUs from "./pages/ContactUs";
 import { restorePaymentAccess } from "./lib/paymentApi";
+import RefundCancellation from "./pages/RefundCancellation";
 
 function PageLoader({ message = "Loading Viralo AI..." }) {
   return (
@@ -372,6 +373,10 @@ function App() {
         />
 
         <Route
+          path="/refund-cancellation"
+          element={<RefundCancellation />}
+        />
+        <Route
           path="/payment"
           element={
             <ProtectedRoute>
@@ -466,6 +471,10 @@ function App() {
         <Route path="/contact" element={<ContactUs />} />
         <Route path="/terms" element={<LegalInfoPage pageKey="terms" />} />
         <Route path="/privacy" element={<LegalInfoPage pageKey="privacy" />} />
+        <Route
+          path="/refund-cancellation"
+          element={<RefundCancellation />}
+        />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
