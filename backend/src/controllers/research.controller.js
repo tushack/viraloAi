@@ -406,34 +406,105 @@ async function analyzeCompetitorChannel(req, res) {
 
 async function createContentPack(req, res) {
   try {
-    const result = await createContentPackResult(req.body || {});
+    const execution =
+      await runWithFeatureQuota({
+        userId: req.user.uid,
+        email: req.user.email,
+        feature: FEATURES.CONTENT_PACK,
+        req,
+
+        operation: () =>
+          createContentPackResult(
+            req.body || {}
+          ),
+      });
+
+    const result = execution.result;
 
     await logActivitySafe({
       userId: req.user.uid,
       userEmail: req.user.email,
-      eventType: "content_pack.generated",
+      eventType:
+        "content_pack.generated",
       module: "content_pack",
+
       metadata: {
-        topic: req.body?.topic || result?.topic || "",
-        niche: req.body?.niche || "",
-        platform: req.body?.platform || "",
+        topic:
+          req.body?.topic ||
+          result?.topic ||
+          "",
+
+        niche:
+          req.body?.niche ||
+          result?.niche ||
+          "",
+
+        platform:
+          req.body?.platform ||
+          result?.platform ||
+          "",
+
+        provider:
+          result?.meta?.ai
+            ?.provider ||
+          result?.source ||
+          "",
+
+        model:
+          result?.meta?.ai
+            ?.model ||
+          "",
+
+        usedFallback:
+          result?.meta?.ai
+            ?.usedFallback === true,
+
+        usage:
+          execution.usage ||
+          null,
       },
+
       req,
     });
 
-    return res.status(200).json(result);
+    return res
+      .status(200)
+      .json(
+        withUsageMeta(
+          result,
+          execution.usage
+        )
+      );
   } catch (error) {
-    console.error("Create content pack error:", error);
+    console.error(
+      "Create content pack error:",
+      error
+    );
 
     await logActivitySafe({
-      userId: req.user?.uid,
-      userEmail: req.user?.email,
-      eventType: "content_pack.generate_failed",
-      module: "content_pack",
-      status: "failed",
+      userId:
+        req.user?.uid,
+
+      userEmail:
+        req.user?.email,
+
+      eventType:
+        "content_pack.generate_failed",
+
+      module:
+        "content_pack",
+
+      status:
+        "failed",
+
       metadata: {
-        message: error.message,
+        message:
+          error.message,
+
+        code:
+          error.code || "",
       },
+
       req,
     });
 

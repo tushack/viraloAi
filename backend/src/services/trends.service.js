@@ -6,6 +6,9 @@ const {
 const {
     getMostPopularYouTubeVideos,
 } = require("./youtubePublicTrends.service");
+const {
+    getUserInterestProfile,
+} = require("./personalization.service");
 
 const CACHE_TTL_MINUTES = Math.max(
     5,
@@ -279,6 +282,160 @@ function getCompetitionEstimate(trendScore) {
     return "Low";
 }
 
+function getThumbnailUrl(item) {
+    const directFields = [
+        item?.thumbnailUrl,
+        item?.thumbnail_url,
+        item?.thumbnailUrlHQ,
+        item?.thumbnailSrc,
+        item?.image,
+        item?.thumbnailImage,
+    ];
+
+    for (const value of directFields) {
+        if (
+            typeof value === "string" &&
+            value.trim()
+        ) {
+            return value.trim();
+        }
+
+        if (
+            value &&
+            typeof value === "object" &&
+            typeof value.url === "string"
+        ) {
+            return value.url.trim();
+        }
+    }
+
+    /*
+     * Apify returns:
+     *
+     * thumbnails: [
+     *   { url, width, height },
+     *   { url, width, height }
+     * ]
+     *
+     * Pick the largest available image.
+     */
+    if (
+        Array.isArray(item?.thumbnails) &&
+        item.thumbnails.length
+    ) {
+        const thumbnail = item.thumbnails
+            .filter(
+                (entry) =>
+                    entry &&
+                    typeof entry.url === "string" &&
+                    entry.url.trim()
+            )
+            .sort((first, second) => {
+                const firstSize =
+                    Number(first?.width || 0) *
+                    Number(first?.height || 0);
+
+                const secondSize =
+                    Number(second?.width || 0) *
+                    Number(second?.height || 0);
+
+                return secondSize - firstSize;
+            })[0];
+
+        if (thumbnail?.url) {
+            return thumbnail.url.trim();
+        }
+    }
+
+    /*
+     * Some YouTube responses return:
+     *
+     * thumbnails: {
+     *   default: { url },
+     *   medium: { url },
+     *   high: { url },
+     *   standard: { url },
+     *   maxres: { url }
+     * }
+     */
+    if (
+        item?.thumbnails &&
+        typeof item.thumbnails === "object"
+    ) {
+        const preferredThumbnail =
+            item.thumbnails.maxres ||
+            item.thumbnails.standard ||
+            item.thumbnails.high ||
+            item.thumbnails.medium ||
+            item.thumbnails.default;
+
+        if (
+            typeof preferredThumbnail?.url ===
+            "string"
+        ) {
+            return preferredThumbnail.url.trim();
+        }
+
+        const objectThumbnail = Object.values(
+            item.thumbnails
+        )
+            .filter(
+                (entry) =>
+                    entry &&
+                    typeof entry.url === "string" &&
+                    entry.url.trim()
+            )
+            .sort((first, second) => {
+                const firstSize =
+                    Number(first?.width || 0) *
+                    Number(first?.height || 0);
+
+                const secondSize =
+                    Number(second?.width || 0) *
+                    Number(second?.height || 0);
+
+                return secondSize - firstSize;
+            })[0];
+
+        if (objectThumbnail?.url) {
+            return objectThumbnail.url.trim();
+        }
+    }
+
+    /*
+     * Sometimes thumbnail itself can be an array.
+     */
+    if (
+        Array.isArray(item?.thumbnail) &&
+        item.thumbnail.length
+    ) {
+        const thumbnail = item.thumbnail
+            .filter(
+                (entry) =>
+                    entry &&
+                    typeof entry.url === "string" &&
+                    entry.url.trim()
+            )
+            .sort((first, second) => {
+                const firstSize =
+                    Number(first?.width || 0) *
+                    Number(first?.height || 0);
+
+                const secondSize =
+                    Number(second?.width || 0) *
+                    Number(second?.height || 0);
+
+                return secondSize - firstSize;
+            })[0];
+
+        if (thumbnail?.url) {
+            return thumbnail.url.trim();
+        }
+    }
+
+    return "";
+}
+
 function normalizeVideo(item, { platform, region, sourceMode, sourceQuery = "" }) {
     const title = asText(
         pickField(item, ["title", "videoTitle", "name", "text", "videoName"]),
@@ -310,22 +467,8 @@ function normalizeVideo(item, { platform, region, sourceMode, sourceQuery = "" }
         ""
     );
 
-    const thumbnail = asText(
-        pickField(
-            item,
-            [
-                "thumbnailUrl",
-                "thumbnail",
-                "thumbnailUrlHQ",
-                "thumbnail_url",
-                "image",
-                "thumbnailImage",
-                "thumbnailSrc",
-            ],
-            ""
-        ),
-        ""
-    );
+    const thumbnail =
+        getThumbnailUrl(item);
 
     const publishedAt = asText(
         pickField(
@@ -802,18 +945,11 @@ async function fetchSearchTrendItems({
     timeRange,
     limit,
 }) {
-    const countries = getCountryCodes(region);
+    const countries =
+        getCountryCodes(region);
 
-    async function fetchSearchTrendItems({
-        query,
-        platform,
-        region,
-        timeRange,
-        limit,
-    }) {
-        const countries = getCountryCodes(region);
-
-        const results = await Promise.allSettled(
+    const results =
+        await Promise.allSettled(
             countries.map((country) =>
                 runApifyYouTubeSearch({
                     query,
@@ -821,29 +957,29 @@ async function fetchSearchTrendItems({
                     country,
                     language: "en",
                     sortBy: "viewCount",
-                    uploadDate: getUploadDateFilter(timeRange),
-                    includeShorts: platform === "YouTube Shorts",
+
+                    uploadDate:
+                        getUploadDateFilter(
+                            timeRange
+                        ),
+
+                    includeShorts:
+                        platform ===
+                        "YouTube Shorts",
                 })
             )
         );
 
-        const items = results
-            .filter((result) => result.status === "fulfilled")
-            .flatMap((result) => result.value || [])
-            .map((item) =>
-                normalizeVideo(item, {
-                    platform,
-                    region,
-                    sourceMode: "search",
-                    sourceQuery: query,
-                })
-            );
-
-        return dedupeItems(items, limit);
-    }
-
-    const items = batches
-        .flat()
+    const items = results
+        .filter(
+            (result) =>
+                result.status ===
+                "fulfilled"
+        )
+        .flatMap(
+            (result) =>
+                result.value || []
+        )
         .map((item) =>
             normalizeVideo(item, {
                 platform,
@@ -853,7 +989,10 @@ async function fetchSearchTrendItems({
             })
         );
 
-    return dedupeItems(items, limit);
+    return dedupeItems(
+        items,
+        limit
+    );
 }
 
 async function getRecentUserSearches({
@@ -893,53 +1032,159 @@ async function buildPersonalizedItems({
     region,
     filters,
     limit,
+    explicitNiche = "",
 }) {
-    const recentSearches = await getRecentUserSearches({
-        userId,
-        platform,
-        region,
-        limit: 3,
-    });
+    const profile =
+        await getUserInterestProfile({
+            userId,
+            explicitNiche,
+            platform,
+        });
 
-    if (!recentSearches.length) {
+    const selectedSignals = (
+        profile?.signals || []
+    )
+        .filter((item) =>
+            cleanString(
+                item?.query,
+                180
+            )
+        )
+        .slice(0, 3);
+
+    if (
+        !selectedSignals.length
+    ) {
         return {
             items: [],
             searches: [],
+            signals: [],
+
+            youtubeConnected:
+                Boolean(
+                    profile?.youtubeConnected
+                ),
         };
     }
 
-    const cachedLists = await Promise.all(
-        recentSearches.map(async (search) => {
-            const storedFilters =
-                search.filters_json && typeof search.filters_json === "object"
-                    ? search.filters_json
-                    : {};
+    const perSignalLimit =
+        Math.max(
+            8,
 
-            const cacheKey = makeSearchCacheKey({
-                platform,
-                region,
-                query: search.query,
-                timeRange: storedFilters.timeRange || "all",
-            });
+            Math.ceil(
+                Number(limit || 12) /
+                selectedSignals.length
+            ) + 4
+        );
 
-            const cached = await readTrendCache(cacheKey);
-            return cached?.items || [];
-        })
-    );
+    const results =
+        await Promise.allSettled(
+            selectedSignals.map(
+                async (signal) => {
+                    const query =
+                        cleanString(
+                            signal.query,
+                            180
+                        );
 
-    const merged = dedupeItems(
-        cachedLists
-            .flat()
-            .map((item) => ({
-                ...item,
-                sourceQuery: item.sourceQuery || recentSearches[0]?.query || "",
-            })),
-        limit
-    );
+                    const cacheKey =
+                        makeSearchCacheKey({
+                            platform,
+                            region,
+                            query,
+
+                            timeRange:
+                                filters.timeRange,
+                        });
+
+                    const result =
+                        await getCachedOrFetch({
+                            cacheKey,
+                            limit:
+                                perSignalLimit,
+
+                            fetchFresh:
+                                async () => {
+                                    const items =
+                                        await fetchSearchTrendItems(
+                                            {
+                                                query,
+                                                platform,
+                                                region,
+
+                                                timeRange:
+                                                    filters.timeRange,
+
+                                                limit:
+                                                    perSignalLimit,
+                                            }
+                                        );
+
+                                    return {
+                                        cacheKey,
+                                        scope: "search",
+                                        query,
+                                        platform,
+                                        region,
+                                        items,
+                                    };
+                                },
+                        });
+
+                    return (
+                        result?.items || []
+                    ).map((item) => ({
+                        ...item,
+
+                        personalizationReason:
+                            query,
+
+                        personalizationSources:
+                            signal.sources || [],
+                    }));
+                }
+            )
+        );
+
+    const merged =
+        dedupeItemsInOrder(
+            results
+                .filter(
+                    (result) =>
+                        result.status ===
+                        "fulfilled"
+                )
+                .flatMap(
+                    (result) =>
+                        result.value || []
+                ),
+
+            limit
+        );
 
     return {
-        items: applyFilters(merged, filters),
-        searches: recentSearches.map((item) => item.query),
+        items: applyFilters(
+            merged,
+            filters
+        ),
+
+        searches:
+            selectedSignals.map(
+                (item) => item.query
+            ),
+
+        signals:
+            selectedSignals,
+
+        youtubeConnected:
+            Boolean(
+                profile?.youtubeConnected
+            ),
+
+        youtubeChannelTitle:
+            profile
+                ?.youtubeChannelTitle ||
+            "",
     };
 }
 
@@ -970,6 +1215,11 @@ function validateFeedInput(payload = {}) {
     const momentum = cleanString(payload.momentum || "All", 80);
     const limit = clamp(Number(payload.limit) || DEFAULT_LIMIT, 1, MAX_LIMIT);
 
+    const niche = cleanString(
+        payload.niche || "",
+        180
+    );
+
     if (!PLATFORM_OPTIONS.has(platform)) {
         const error = new Error(
             "Live Trends currently supports YouTube and YouTube Shorts only."
@@ -993,6 +1243,7 @@ function validateFeedInput(payload = {}) {
         contentType,
         momentum,
         limit,
+        niche,
     };
 }
 
@@ -1024,14 +1275,24 @@ async function buildTrendFeed({
     });
 
     const globalItems = applyFilters(globalResult.items, filters);
-    const personalized = await buildPersonalizedItems({
-        userId,
-        platform: filters.platform,
-        region: filters.region,
-        filters,
-        limit: filters.limit,
-    });
+    const personalized =
+        await buildPersonalizedItems({
+            userId,
 
+            platform:
+                filters.platform,
+
+            region:
+                filters.region,
+
+            filters,
+
+            limit:
+                filters.limit,
+
+            explicitNiche:
+                filters.niche || "",
+        });
     const sections = [];
 
     if (searchResult?.length) {
@@ -1044,12 +1305,26 @@ async function buildTrendFeed({
         });
     }
 
-    if (personalized.items.length) {
+    if (
+        personalized.items.length
+    ) {
+        const interestText =
+            personalized.searches
+                .slice(0, 3)
+                .join(", ");
+
         sections.push({
             key: "for_you",
-            title: "Based on your searches",
-            subtitle: `Related to: ${personalized.searches.join(", ")}`,
-            items: personalized.items,
+            title: "For you",
+
+            subtitle:
+                personalized
+                    .youtubeConnected
+                    ? `Personalized from your niche, activity and connected YouTube interests: ${interestText}`
+                    : `Personalized from your niche, searches, saved ideas and activity: ${interestText}`,
+
+            items:
+                personalized.items,
         });
     }
 
@@ -1071,6 +1346,19 @@ async function buildTrendFeed({
             personalizationSearches: personalized.searches,
             refreshApplied: forceRefresh,
             globalRefreshMode: globalResult.refreshMode,
+            personalizationSignals:
+                personalized.signals || [],
+
+            youtubePersonalizationConnected:
+                Boolean(
+                    personalized
+                        .youtubeConnected
+                ),
+
+            youtubeChannelTitle:
+                personalized
+                    .youtubeChannelTitle ||
+                "",
         },
     };
 }

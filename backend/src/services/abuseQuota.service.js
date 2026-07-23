@@ -10,27 +10,120 @@ const FEATURE_RULES = {
   dashboard_search: {
     requireVerifiedEmail: true,
     buckets: [
-      { type: "email_lifetime", source: "email", window: "lifetime", limit: 5 },
-      { type: "device_lifetime", source: "device", window: "lifetime", limit: 8 },
-      { type: "ip_daily", source: "ip", window: "daily", limit: 25 },
+      {
+        type: "email_lifetime",
+        source: "email",
+        window: "lifetime",
+        limit: 5,
+      },
+      {
+        type: "device_lifetime",
+        source: "device",
+        window: "lifetime",
+        limit: 8,
+      },
+      {
+        type: "ip_daily",
+        source: "ip",
+        window: "daily",
+        limit: 25,
+      },
     ],
   },
 
   trend_search: {
     requireVerifiedEmail: true,
     buckets: [
-      { type: "email_lifetime", source: "email", window: "lifetime", limit: 5 },
-      { type: "device_lifetime", source: "device", window: "lifetime", limit: 8 },
-      { type: "ip_daily", source: "ip", window: "daily", limit: 25 },
+      {
+        type: "email_lifetime",
+        source: "email",
+        window: "lifetime",
+        limit: 5,
+      },
+      {
+        type: "device_lifetime",
+        source: "device",
+        window: "lifetime",
+        limit: 8,
+      },
+      {
+        type: "ip_daily",
+        source: "ip",
+        window: "daily",
+        limit: 25,
+      },
     ],
   },
 
   competitor_analysis: {
     requireVerifiedEmail: true,
     buckets: [
-      { type: "email_lifetime", source: "email", window: "lifetime", limit: 5 },
-      { type: "device_lifetime", source: "device", window: "lifetime", limit: 6 },
-      { type: "ip_daily", source: "ip", window: "daily", limit: 20 },
+      {
+        type: "email_lifetime",
+        source: "email",
+        window: "lifetime",
+        limit: 5,
+      },
+      {
+        type: "device_lifetime",
+        source: "device",
+        window: "lifetime",
+        limit: 6,
+      },
+      {
+        type: "ip_daily",
+        source: "ip",
+        window: "daily",
+        limit: 20,
+      },
+    ],
+  },
+
+  viral_check: {
+    requireVerifiedEmail: true,
+    buckets: [
+      {
+        type: "email_lifetime",
+        source: "email",
+        window: "lifetime",
+        limit: 5,
+      },
+      {
+        type: "device_lifetime",
+        source: "device",
+        window: "lifetime",
+        limit: 8,
+      },
+      {
+        type: "ip_daily",
+        source: "ip",
+        window: "daily",
+        limit: 25,
+      },
+    ],
+  },
+
+  content_pack: {
+    requireVerifiedEmail: true,
+    buckets: [
+      {
+        type: "email_lifetime",
+        source: "email",
+        window: "lifetime",
+        limit: 5,
+      },
+      {
+        type: "device_lifetime",
+        source: "device",
+        window: "lifetime",
+        limit: 8,
+      },
+      {
+        type: "ip_daily",
+        source: "ip",
+        window: "daily",
+        limit: 25,
+      },
     ],
   },
 
@@ -38,9 +131,24 @@ const FEATURE_RULES = {
     requireVerifiedEmail: true,
     requirePhoneForHighCost: true,
     buckets: [
-      { type: "email_lifetime", source: "email", window: "lifetime", limit: 3 },
-      { type: "device_lifetime", source: "device", window: "lifetime", limit: 3 },
-      { type: "ip_daily", source: "ip", window: "daily", limit: 10 },
+      {
+        type: "email_lifetime",
+        source: "email",
+        window: "lifetime",
+        limit: 3,
+      },
+      {
+        type: "device_lifetime",
+        source: "device",
+        window: "lifetime",
+        limit: 3,
+      },
+      {
+        type: "ip_daily",
+        source: "ip",
+        window: "daily",
+        limit: 10,
+      },
     ],
   },
 
@@ -48,9 +156,24 @@ const FEATURE_RULES = {
     requireVerifiedEmail: true,
     requirePhoneForHighCost: true,
     buckets: [
-      { type: "email_lifetime", source: "email", window: "lifetime", limit: 3 },
-      { type: "device_lifetime", source: "device", window: "lifetime", limit: 3 },
-      { type: "ip_daily", source: "ip", window: "daily", limit: 10 },
+      {
+        type: "email_lifetime",
+        source: "email",
+        window: "lifetime",
+        limit: 3,
+      },
+      {
+        type: "device_lifetime",
+        source: "device",
+        window: "lifetime",
+        limit: 3,
+      },
+      {
+        type: "ip_daily",
+        source: "ip",
+        window: "daily",
+        limit: 10,
+      },
     ],
   },
 };

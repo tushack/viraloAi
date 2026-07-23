@@ -339,13 +339,112 @@ export default function Trends() {
   const [contentPackLoading, setContentPackLoading] = useState("");
   const [error, setError] = useState("");
 
-  const visibleSections = useMemo(
-    () =>
-      (Array.isArray(feed?.sections) ? feed.sections : []).filter(
-        (section) => Array.isArray(section?.items) && section.items.length
-      ),
-    [feed]
-  );
+  const visibleSections = useMemo(() => {
+    const sections = (
+      Array.isArray(feed?.sections)
+        ? feed.sections
+        : []
+    ).filter(
+      (section) =>
+        Array.isArray(section?.items) &&
+        section.items.length
+    );
+
+    /*
+     * A manual search should show only its direct results.
+     * Global and personalized sections remain hidden during search
+     * to avoid showing three separate repeated sections.
+     */
+    const searchSection = sections.find(
+      (section) =>
+        section?.key === "search_results"
+    );
+
+    if (searchSection) {
+      return [searchSection];
+    }
+
+    const personalizedSection =
+      sections.find(
+        (section) =>
+          section?.key === "for_you"
+      );
+
+    const globalSection =
+      sections.find(
+        (section) =>
+          section?.key === "trending_now"
+      );
+
+    /*
+     * Combine personalized and global items into one feed.
+     * Personalized items stay first.
+     */
+    if (personalizedSection) {
+      const combinedItems = [
+        ...(personalizedSection.items || []),
+        ...(globalSection?.items || []),
+      ];
+
+      const seen = new Set();
+
+      const uniqueItems = combinedItems.filter(
+        (item) => {
+          const key =
+            item?.id ||
+            item?.url ||
+            `${String(
+              item?.topic || ""
+            ).toLowerCase()}-${String(
+              item?.channel || ""
+            ).toLowerCase()}`;
+
+          if (
+            !key ||
+            seen.has(key)
+          ) {
+            return false;
+          }
+
+          seen.add(key);
+          return true;
+        }
+      );
+
+      return [
+        {
+          ...personalizedSection,
+
+          key:
+            "personalized_trending_now",
+
+          title:
+            "Trending Now For You",
+
+          subtitle:
+            feed?.meta
+              ?.youtubePersonalizationConnected
+              ? "Personalized using your niche, searches, saved ideas, activity and connected YouTube interests."
+              : "Personalized using your niche, searches, saved ideas and recent activity.",
+
+          items:
+            uniqueItems,
+        },
+      ];
+    }
+
+    /*
+     * New users without personalization get the normal global feed.
+     */
+    if (globalSection) {
+      return [globalSection];
+    }
+
+    /*
+     * Safe fallback for any future section type.
+     */
+    return sections.slice(0, 1);
+  }, [feed]);
 
   const updateFilter = (field, value) => {
     setFilters((current) => ({

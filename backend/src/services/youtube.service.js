@@ -916,6 +916,7 @@ module.exports = {
   createYoutubeAuthUrl,
   handleYoutubeCallback,
   getYoutubeConnection,
+  getAuthorizedYoutubeClient,
   disconnectYoutubeConnection,
   applyYoutubeReadyKit,
 };

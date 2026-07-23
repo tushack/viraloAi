@@ -141,39 +141,134 @@ function formatAverageGrowth(topics) {
   return `${average >= 0 ? "+" : ""}${average}%`;
 }
 
-function getDashboardLiveTopics(feed) {
-  const sections = Array.isArray(feed?.sections) ? feed.sections : [];
+function getDashboardLiveTopics(
+  feed
+) {
+  const sections =
+    Array.isArray(feed?.sections)
+      ? feed.sections
+      : [];
 
+  /*
+   * Priority:
+   * 1. Personalized For You
+   * 2. Current search results
+   * 3. Global trending
+   */
   const trendSection =
     sections.find(
       (section) =>
-        section?.key === "trending_now" &&
-        Array.isArray(section?.items) &&
+        section?.key ===
+        "for_you" &&
+        Array.isArray(
+          section?.items
+        ) &&
         section.items.length
     ) ||
     sections.find(
       (section) =>
-        Array.isArray(section?.items) &&
+        section?.key ===
+        "search_results" &&
+        Array.isArray(
+          section?.items
+        ) &&
+        section.items.length
+    ) ||
+    sections.find(
+      (section) =>
+        section?.key ===
+        "trending_now" &&
+        Array.isArray(
+          section?.items
+        ) &&
+        section.items.length
+    ) ||
+    sections.find(
+      (section) =>
+        Array.isArray(
+          section?.items
+        ) &&
         section.items.length
     );
 
-  return getList(trendSection?.items)
+  return getList(
+    trendSection?.items
+  )
     .slice(0, 4)
     .map((item, index) => ({
-      id: item?.id || item?.url || `live-trend-${index}`,
-      topic: getTextValue(item?.topic, "Untitled trend"),
-      growth: getTextValue(item?.momentum, "Trending now"),
-      competition: getTextValue(item?.competition, "Medium"),
-      difficulty: getTextValue(item?.contentType, "Video"),
+      id:
+        item?.id ||
+        item?.url ||
+        `live-trend-${index}`,
+
+      topic: getTextValue(
+        item?.topic,
+        "Untitled trend"
+      ),
+
+      growth: getTextValue(
+        item?.momentum,
+        "Trending now"
+      ),
+
+      competition:
+        getTextValue(
+          item?.competition,
+          "Medium"
+        ),
+
+      difficulty:
+        getTextValue(
+          item?.contentType,
+          "Video"
+        ),
+
       insight: getTextValue(
         item?.insight,
-        "Live YouTube trend signal from the latest feed."
+        "Live YouTube trend signal from your personalized feed."
       ),
-      niche: getTextValue(item?.sourceQuery, "Live YouTube trends"),
-      platform: getTextValue(item?.platform, "YouTube"),
-      url: getTextValue(item?.url, ""),
-      thumbnail: getTextValue(item?.thumbnail, ""),
-      source: "live-trends",
+
+      niche: getTextValue(
+        item
+          ?.personalizationReason ||
+        item?.sourceQuery,
+        "Live YouTube trends"
+      ),
+
+      platform: getTextValue(
+        item?.platform,
+        "YouTube"
+      ),
+
+      url: getTextValue(
+        item?.url,
+        ""
+      ),
+
+      thumbnail: getTextValue(
+        item?.thumbnail,
+        ""
+      ),
+
+      personalizationReason:
+        item
+          ?.personalizationReason ||
+        "",
+
+      personalizationSources:
+        Array.isArray(
+          item
+            ?.personalizationSources
+        )
+          ? item
+            .personalizationSources
+          : [],
+
+      source:
+        trendSection?.key ===
+          "for_you"
+          ? "personalized-trends"
+          : "live-trends",
     }));
 }
 
@@ -252,9 +347,9 @@ function buildDashboardCompetitorsFromResearch(activeData) {
     .filter((item) => {
       const channelName = getTextValue(
         item?.channelTitle ||
-          item?.channelName ||
-          item?.name ||
-          item?.channel,
+        item?.channelName ||
+        item?.name ||
+        item?.channel,
         ""
       ).trim();
       const normalizedUrl = item.channelUrl.toLowerCase();
@@ -922,6 +1017,38 @@ export default function Dashboard() {
 
       setApiData(data);
 
+      try {
+        const personalizedTrendFeed =
+          await getTrendFeed({
+            niche: niche.trim(),
+
+            platform:
+              selectedPlatform,
+
+            region: "India",
+            timeRange: "7d",
+            contentType: "All",
+            momentum: "All",
+            limit: 12,
+          });
+
+        setLiveTrendTopics(
+          getDashboardLiveTopics(
+            personalizedTrendFeed
+          )
+        );
+      } catch (trendError) {
+        /*
+         * Trend refresh failure should
+         * never fail the successful niche scan.
+         */
+        console.warn(
+          "Personalized dashboard trends could not refresh:",
+          trendError?.message ||
+          trendError
+        );
+      }
+
       const createdAt = new Date().toISOString();
 
       const newScan = {
@@ -1303,8 +1430,7 @@ export default function Dashboard() {
           </section>
 
           {!dashboardLoading &&
-            !hasResearchData &&
-            !liveTrendTopics.length && (
+            liveTrendTopics.length > 0 && (
               <section className="mt-8">
                 <EmptyPanel
                   title="Set your niche to start"
@@ -1326,7 +1452,9 @@ export default function Dashboard() {
                     </div>
 
                     <p className="mt-1 text-sm leading-6 text-zinc-500">
-                      Live YouTube topics are shown here until you run your first niche scan.
+                      Personalized live YouTube trends based on your niche,
+                      repeated searches, saved ideas, creator activity and
+                      connected YouTube interests.
                     </p>
                   </div>
 
@@ -1678,129 +1806,129 @@ export default function Dashboard() {
 
               {showCompetitorSection && (
                 <section className="mt-8">
-                <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-                  <div>
-                    <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
-                      Competitor Analysis
-                    </h2>
+                  <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                    <div>
+                      <h2 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
+                        Competitor Analysis
+                      </h2>
 
 
-                    <p className="mt-1 text-sm leading-6 text-zinc-500">
-                      Competitor signals from your latest research scan for {activeNiche}.
-                    </p>
+                      <p className="mt-1 text-sm leading-6 text-zinc-500">
+                        Competitor signals from your latest research scan for {activeNiche}.
+                      </p>
+                    </div>
+
+                    <Button
+                      type="button"
+                      onClick={handleExportReport}
+                      disabled={!activeResearchData}
+                      className="h-9 w-full rounded-full border border-white/10 bg-white/[0.04] px-4 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                    >
+                      <FileDown className="h-4 w-4" />
+                      Export Report
+                    </Button>
                   </div>
 
-                  <Button
-                    type="button"
-                    onClick={handleExportReport}
-                    disabled={!activeResearchData}
-                    className="h-9 w-full rounded-full border border-white/10 bg-white/[0.04] px-4 text-xs font-medium text-zinc-200 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-                  >
-                    <FileDown className="h-4 w-4" />
-                    Export Report
-                  </Button>
-                </div>
+                  {competitorsLoading && (
+                    <Card className="border-white/10 bg-white/[0.04]">
+                      <CardContent className="flex min-h-[132px] items-center justify-center gap-3 p-6 text-sm text-zinc-300">
+                        <Loader2 className="h-5 w-5 animate-spin text-cyan-300" />
+                        Loading public YouTube channels...
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {competitorsLoading && (
-                  <Card className="border-white/10 bg-white/[0.04]">
-                    <CardContent className="flex min-h-[132px] items-center justify-center gap-3 p-6 text-sm text-zinc-300">
-                      <Loader2 className="h-5 w-5 animate-spin text-cyan-300" />
-                      Loading public YouTube channels...
-                    </CardContent>
-                  </Card>
-                )}
+                  {!competitorsLoading && competitorsToShow.length > 0 && (
+                    <Card className="overflow-hidden border-white/10 bg-white/[0.04]">
+                      <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[720px] text-left text-sm">
+                            <thead className="border-b border-white/10 bg-white/[0.035] text-xs uppercase tracking-[0.16em] text-zinc-500">
+                              <tr>
+                                <th className="px-5 py-4 font-medium">Top Channel</th>
+                                <th className="px-5 py-4 font-medium">Score</th>
+                                <th className="px-5 py-4 font-medium">Views</th>
+                                <th className="px-5 py-4 font-medium">Growth</th>
+                                <th className="px-5 py-4 font-medium">Open</th>
+                              </tr>
+                            </thead>
 
-                {!competitorsLoading && competitorsToShow.length > 0 && (
-                  <Card className="overflow-hidden border-white/10 bg-white/[0.04]">
-                    <CardContent className="p-0">
-                      <div className="overflow-x-auto">
-                        <table className="w-full min-w-[720px] text-left text-sm">
-                          <thead className="border-b border-white/10 bg-white/[0.035] text-xs uppercase tracking-[0.16em] text-zinc-500">
-                            <tr>
-                              <th className="px-5 py-4 font-medium">Top Channel</th>
-                              <th className="px-5 py-4 font-medium">Score</th>
-                              <th className="px-5 py-4 font-medium">Views</th>
-                              <th className="px-5 py-4 font-medium">Growth</th>
-                              <th className="px-5 py-4 font-medium">Open</th>
-                            </tr>
-                          </thead>
-
-                          <tbody className="divide-y divide-white/10">
-                            {competitorsToShow.map((item, index) => {
-                              const channelName =
-                                getTextValue(
-                                  item?.channelTitle ||
-                                  item?.channelName ||
-                                  item?.name ||
-                                  item?.channel,
+                            <tbody className="divide-y divide-white/10">
+                              {competitorsToShow.map((item, index) => {
+                                const channelName =
+                                  getTextValue(
+                                    item?.channelTitle ||
+                                    item?.channelName ||
+                                    item?.name ||
+                                    item?.channel,
+                                    ""
+                                  ).trim() || "Unknown Channel";
+                                const channelUrl = getTextValue(
+                                  item.channelUrl || item.sourceUrl || item.url,
                                   ""
-                                ).trim() || "Unknown Channel";
-                              const channelUrl = getTextValue(
-                                item.channelUrl || item.sourceUrl || item.url,
-                                ""
-                              );
-                              const initials = channelName.slice(0, 2).toUpperCase();
+                                );
+                                const initials = channelName.slice(0, 2).toUpperCase();
 
-                              return (
-                                <tr
-                                  key={item.channelId || `${channelName}-${index}`}
-                                  className="transition hover:bg-white/[0.035]"
-                                >
-                                  <td className="px-5 py-4">
-                                    <div className="flex items-center gap-3">
-                                      {item.channelThumbnail ? (
-                                        <img
-                                          src={item.channelThumbnail}
-                                          alt={channelName}
-                                          className="h-9 w-9 shrink-0 rounded-2xl border border-white/10 object-cover"
-                                        />
-                                      ) : (
-                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-zinc-700 to-zinc-900 text-xs font-semibold text-white">
-                                          {initials}
-                                        </div>
-                                      )}
+                                return (
+                                  <tr
+                                    key={item.channelId || `${channelName}-${index}`}
+                                    className="transition hover:bg-white/[0.035]"
+                                  >
+                                    <td className="px-5 py-4">
+                                      <div className="flex items-center gap-3">
+                                        {item.channelThumbnail ? (
+                                          <img
+                                            src={item.channelThumbnail}
+                                            alt={channelName}
+                                            className="h-9 w-9 shrink-0 rounded-2xl border border-white/10 object-cover"
+                                          />
+                                        ) : (
+                                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-zinc-700 to-zinc-900 text-xs font-semibold text-white">
+                                            {initials}
+                                          </div>
+                                        )}
 
-                                      <div className="min-w-0">
-                                        <p className="truncate font-medium text-white">{channelName}</p>
-                                        <p className="mt-1 truncate text-xs text-zinc-500">
-                                          {item?.channelHandle || "YouTube Data API"}
-                                        </p>                                      </div>
-                                    </div>
-                                  </td>
+                                        <div className="min-w-0">
+                                          <p className="truncate font-medium text-white">{channelName}</p>
+                                          <p className="mt-1 truncate text-xs text-zinc-500">
+                                            {item?.channelHandle || "YouTube Data API"}
+                                          </p>                                      </div>
+                                      </div>
+                                    </td>
 
-                                  <td className="px-5 py-4 text-zinc-200">
-                                    {getTextValue(item.score || item.subscribers, "—")}
-                                  </td>
+                                    <td className="px-5 py-4 text-zinc-200">
+                                      {getTextValue(item.score || item.subscribers, "—")}
+                                    </td>
 
-                                  <td className="px-5 py-4 text-zinc-200">
-                                    {getTextValue(item.views || item.channelViews || item.avg_views, "—")}
-                                  </td>
+                                    <td className="px-5 py-4 text-zinc-200">
+                                      {getTextValue(item.views || item.channelViews || item.avg_views, "—")}
+                                    </td>
 
-                                  <td className="px-5 py-4 text-cyan-300">
-                                    {getTextValue(item.growth || item.videoCount, "—")}
-                                  </td>
+                                    <td className="px-5 py-4 text-cyan-300">
+                                      {getTextValue(item.growth || item.videoCount, "—")}
+                                    </td>
 
-                                  <td className="px-5 py-4">
-                                    <Button
-                                      type="button"
-                                      disabled={!channelUrl}
-                                      onClick={() =>
-                                        window.open(channelUrl, "_blank", "noopener,noreferrer")
-                                      }
-                                      className="h-8 rounded-full border border-white/10 bg-white/[0.05] px-3 text-xs text-zinc-200 hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      Open Channel
-                                    </Button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                                    <td className="px-5 py-4">
+                                      <Button
+                                        type="button"
+                                        disabled={!channelUrl}
+                                        onClick={() =>
+                                          window.open(channelUrl, "_blank", "noopener,noreferrer")
+                                        }
+                                        className="h-8 rounded-full border border-white/10 bg-white/[0.05] px-3 text-xs text-zinc-200 hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        Open Channel
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
                 </section>
               )}
             </>
