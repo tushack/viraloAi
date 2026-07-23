@@ -988,9 +988,6 @@ export default function ContentPack() {
           {isCurrentPackSaved ? "Saved" : "Save Pack"}
         </Button>
 
-        <div className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs font-semibold text-cyan-200">
-          Generated for: {pack.topic}
-        </div>
       </div>
 
       <section className="mb-8 overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.045] p-6 shadow-2xl shadow-black/30 sm:p-8">

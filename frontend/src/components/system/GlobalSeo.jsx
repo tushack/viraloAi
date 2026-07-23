@@ -17,7 +17,7 @@ const PUBLIC_ROUTE_META = {
   "/help": {
     title: "Help & Legal | Viralo AI",
     description:
-      "Find Viralo AI support, company information, contact details, privacy information, and service terms.",
+      "Find Viralo AI support, project information, contact details, billing policies, privacy information, and service terms.",
     type: "website",
   },
   "/about": {
@@ -47,7 +47,7 @@ const PUBLIC_ROUTE_META = {
   "/refund-cancellation": {
     title: "Refund & Cancellation Policy | Viralo AI",
     description:
-      "Read the Viralo AI refund window, cancellation process, eligibility conditions, request procedure, and expected payment-provider timelines.",
+      "Read the Viralo AI fixed 30-day Pro access terms, non-refundable purchase policy, and support process for payment activation issues.",
     type: "article",
   },
 };

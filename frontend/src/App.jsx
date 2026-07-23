@@ -371,11 +371,6 @@ function App() {
             </ProtectedRoute>
           }
         />
-
-        <Route
-          path="/refund-cancellation"
-          element={<RefundCancellation />}
-        />
         <Route
           path="/payment"
           element={

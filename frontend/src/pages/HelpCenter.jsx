@@ -48,7 +48,7 @@ const helpItems = [
   {
     title: "Refund & Cancellation",
     description:
-      "Review the refund window, eligibility conditions, cancellation process, and expected timelines.",
+      "Read the fixed 30-day access terms, non-refundable purchase policy, and support process for payment activation issues.",
     path: "/refund-cancellation",
     icon: RefreshCcw,
   },

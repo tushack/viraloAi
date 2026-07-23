@@ -121,9 +121,11 @@ const PAGE_CONTENT = {
       {
         title: "4. Paid plans, cancellation, and refunds",
         paragraphs: [
-          "Where a paid plan is available, the applicable price, access period, currency, tax treatment, and included features are shown before checkout.",
-          "The current fixed-duration Pro plan does not automatically renew unless a future checkout page expressly states otherwise.",
-          "Refund eligibility and the request process are explained in the Refund & Cancellation Policy. Refund rights required by applicable law are not excluded by these Terms.",
+          "Viralo AI Pro is a one-time, fixed-duration digital access purchase for 30 days. The applicable price, currency, tax treatment, and included features are shown before checkout.",
+          "The current Pro purchase does not automatically renew. The user must make a new purchase after expiry if they wish to continue using Pro access.",
+          "After payment is successfully verified and Pro access is activated, the purchase cannot be cancelled, paused, transferred, exchanged, ended early, or refunded merely because the user changes their mind, does not use the service, or is dissatisfied with outcomes.",
+          "If money is debited but Pro access is not activated, the user must contact Viralo AI support with payment proof. Viralo AI will verify the transaction and, where the payment was successfully captured for Viralo AI, activate or restore the applicable 30-day Pro access.",
+          "Nothing in these Terms excludes or limits any right or remedy that cannot lawfully be excluded.",
         ],
       },
       {

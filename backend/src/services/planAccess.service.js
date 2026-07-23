@@ -14,6 +14,7 @@ const FEATURES = Object.freeze({
   DASHBOARD_SEARCH: "dashboard_search",
   TREND_SEARCH: "trend_search",
   COMPETITOR_ANALYSIS: "competitor_analysis",
+  VIRAL_CHECK: "viral_check",
   YOUTUBE_DOWNLOAD: "youtube_download",
   MEDIA_EXPORT: "media_export",
 });
@@ -22,6 +23,7 @@ const FREE_LIMITS = Object.freeze({
   [FEATURES.DASHBOARD_SEARCH]: 5,
   [FEATURES.TREND_SEARCH]: 5,
   [FEATURES.COMPETITOR_ANALYSIS]: 5,
+  [FEATURES.VIRAL_CHECK]: 5,
   [FEATURES.YOUTUBE_DOWNLOAD]: 3,
   [FEATURES.MEDIA_EXPORT]: 3,
 });
@@ -34,6 +36,7 @@ const FEATURE_LABELS = Object.freeze({
   [FEATURES.DASHBOARD_SEARCH]: "dashboard searches",
   [FEATURES.TREND_SEARCH]: "trend searches",
   [FEATURES.COMPETITOR_ANALYSIS]: "competitor analyses",
+  [FEATURES.VIRAL_CHECK]: "viral checks",
   [FEATURES.YOUTUBE_DOWNLOAD]: "YouTube downloads",
   [FEATURES.MEDIA_EXPORT]: "media exports",
 });
