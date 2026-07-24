@@ -37,9 +37,10 @@ function extractJsonFromText(text) {
 
 async function generateNvidiaText({
     messages,
-    temperature = 0.85,
-    topP = 0.95,
+    temperature = 0.65,
+    topP = 0.9,
     maxTokens = 4096,
+    jsonMode = false,
 }) {
     const apiKey = cleanString(process.env.NVIDIA_API_KEY, 1000);
     const baseUrl = cleanString(
@@ -73,12 +74,33 @@ async function generateNvidiaText({
                 messages,
                 temperature,
                 top_p: topP,
-                max_tokens: maxTokens,
 
-                // Python SDK me jo extra_body diya tha, raw HTTP me direct body me jayega.
-                chat_template_kwargs: {
-                    thinking: false,
+                // Long 8192-token generations avoid karo.
+                max_tokens: Math.min(
+                    Number(maxTokens) || 4096,
+                    4096
+                ),
+
+                // OpenRouter-compatible reasoning disable.
+                reasoning: {
+                    effort: "none",
+                    exclude: true,
                 },
+
+                // Available provider me fastest throughput prefer karega.
+                provider: {
+                    sort: "throughput",
+                    allow_fallbacks: true,
+                },
+
+                // JSON functions me valid JSON generate karwao.
+                ...(jsonMode
+                    ? {
+                        response_format: {
+                            type: "json_object",
+                        },
+                    }
+                    : {}),
             }),
         });
 
@@ -111,9 +133,15 @@ async function generateNvidiaText({
     }
 }
 
-async function generateNvidiaJson({ prompt, systemPrompt, maxTokens = 8192 }) {
+async function generateNvidiaJson({
+    prompt,
+    systemPrompt,
+    maxTokens = 4096,
+}) {
     const text = await generateNvidiaText({
         maxTokens,
+        jsonMode: true,
+
         messages: [
             {
                 role: "system",

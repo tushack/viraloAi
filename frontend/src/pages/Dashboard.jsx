@@ -32,8 +32,17 @@ import {
   getTrendFeed,
   saveIdea,
 } from "../lib/api";
+import {
+  isBackgroundTaskRouteActive,
+  markBackgroundTaskViewed,
+  runBackgroundTask,
+  useBackgroundTask,
+  useBackgroundTaskById,
+  useBackgroundTaskByKind,
+} from "../lib/backgroundTasks";
 
 const CURRENT_RESEARCH_KEY = "viralMindCurrentResearch";
+const CONTENT_PACK_TASK_KEY = "content-pack-generate";
 const DASHBOARD_HEADLINE_WORDS = ["Discover something new today"];
 
 function getCurrentResearchKey(userId) {
@@ -658,7 +667,125 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [savingText, setSavingText] = useState("");
   const [generationUsage, setGenerationUsage] = useState(null);
-  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);  // Restore the current scan from navigation state or browser storage.
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const linkedTaskId = React.useMemo(
+    () => new URLSearchParams(location.search).get("backgroundTask") || "",
+    [location.search]
+  );
+  const linkedTask = useBackgroundTaskById(linkedTaskId);
+  const dashboardTaskKey = `dashboard-search:${user?.uid || "guest"}`;
+  const dashboardTask = useBackgroundTask(dashboardTaskKey);
+  const contentPackTask = useBackgroundTaskByKind("content-pack-generate");
+  const appliedDashboardTaskRef = useRef("");
+
+  const applyDashboardBackgroundResult = React.useCallback(
+    (task) => {
+      const data = task?.result;
+
+      if (!data || typeof data !== "object") return;
+
+      const taskNiche = task?.input?.niche || "";
+      const taskPlatform = task?.input?.platform || "YouTube";
+      const taskAudience = task?.input?.audience || "New creators";
+      const createdAt =
+        task?.completedAt || task?.updatedAt || new Date().toISOString();
+
+      setNiche(taskNiche);
+      setSelectedPlatform(taskPlatform);
+      setSelectedAudience(taskAudience);
+      setGenerationUsage(data?.meta?.usage || null);
+      setApiData(data);
+
+      const newScan = {
+        id: `background-${task.id}`,
+        niche: taskNiche,
+        platform: taskPlatform,
+        audience: taskAudience,
+        response_json: data,
+        created_at: createdAt,
+      };
+
+      setResearchHistory((current) => [
+        newScan,
+        ...current.filter((item) => item?.id !== newScan.id),
+      ]);
+
+      const cachePayload = {
+        niche: taskNiche,
+        platform: taskPlatform,
+        audience: taskAudience,
+        data,
+        createdAt,
+      };
+
+      localStorage.setItem(storageKey, JSON.stringify(cachePayload));
+      localStorage.setItem(CURRENT_RESEARCH_KEY, JSON.stringify(cachePayload));
+    },
+    [storageKey]
+  );
+
+  useEffect(() => {
+    const task =
+      linkedTask?.kind === "dashboard-search" ? linkedTask : dashboardTask;
+
+    if (!task) return;
+
+    if (task.status === "running") {
+      setLoading(true);
+      return;
+    }
+
+    setLoading(false);
+
+    const shouldApply =
+      task.id === linkedTaskId || !task.viewedAt;
+
+    if (
+      task.status === "completed" &&
+      task.result &&
+      shouldApply &&
+      appliedDashboardTaskRef.current !== task.id
+    ) {
+      appliedDashboardTaskRef.current = task.id;
+      setError("");
+      applyDashboardBackgroundResult(task);
+    }
+
+    if (task.status === "failed" && shouldApply) {
+      setError(
+        task.error?.message ||
+          "The background niche search could not be completed."
+      );
+    }
+
+    if (
+      !task.viewedAt &&
+      isBackgroundTaskRouteActive("/dashboard")
+    ) {
+      markBackgroundTaskViewed(task.id);
+    }
+  }, [
+    applyDashboardBackgroundResult,
+    dashboardTask,
+    linkedTask,
+    linkedTaskId,
+  ]);
+
+  useEffect(() => {
+    if (contentPackTask?.status === "running") {
+      setContentPackLoading(contentPackTask?.input?.topic || "");
+      return;
+    }
+
+    if (contentPackTask) {
+      setContentPackLoading("");
+    }
+  }, [
+    contentPackTask?.id,
+    contentPackTask?.input?.topic,
+    contentPackTask?.status,
+  ]);
+  // Restore the current scan from navigation state or browser storage.
   // This does not call the API and therefore keeps the UI responsive.
   useEffect(() => {
     if (authLoading) return;
@@ -1005,13 +1132,29 @@ export default function Dashboard() {
     setError("");
 
     try {
-      const data = await getDailyNicheIdeas({
-        niche,
-        platform: selectedPlatform,
-        audience: selectedAudience,
-        limit: 10,
-        forceRefresh: true,
+            const { promise } = runBackgroundTask({
+        key: dashboardTaskKey,
+        kind: "dashboard-search",
+        title: `Ideas for ${niche.trim()}`,
+        route: "/dashboard",
+        input: {
+          niche: niche.trim(),
+          platform: selectedPlatform,
+          audience: selectedAudience,
+        },
+        successMessage: `Your ${niche.trim()} research is ready.`,
+        errorMessage: "The niche research could not be completed.",
+        run: () =>
+          getDailyNicheIdeas({
+            niche,
+            platform: selectedPlatform,
+            audience: selectedAudience,
+            limit: 10,
+            forceRefresh: true,
+          }),
       });
+
+      const data = await promise;
 
       setGenerationUsage(data?.meta?.usage || null);
 
@@ -1180,23 +1323,41 @@ export default function Dashboard() {
     setError("");
 
     try {
-      const pack = await createContentPack({
-        topic: topicText,
-        growth: growthText,
-        competition: competitionText,
-        insight: insightText,
-        niche: niche || getTextValue(item?.niche, activeNiche),
-        platform: selectedPlatform,
-        audience: selectedAudience,
-        variantSeed: Date.now(),
-        generationMode: "fresh",
+            const { id, promise } = runBackgroundTask({
+        key: `${CONTENT_PACK_TASK_KEY}:${topicText.toLowerCase().trim()}`,
+        kind: "content-pack-generate",
+        title: `Content pack: ${topicText}`,
+        route: "/content-pack",
+        input: {
+          topic: topicText,
+          sourceRoute: "/dashboard",
+        },
+        successMessage: `Your content pack for "${topicText}" is ready.`,
+        errorMessage: "The content pack could not be generated.",
+        run: () =>
+          createContentPack({
+            topic: topicText,
+            growth: growthText,
+            competition: competitionText,
+            insight: insightText,
+            niche: niche || getTextValue(item?.niche, activeNiche),
+            platform: selectedPlatform,
+            audience: selectedAudience,
+            variantSeed: Date.now(),
+            generationMode: "fresh",
+          }),
       });
 
-      navigate("/content-pack", {
-        state: {
-          contentPack: pack,
-        },
-      });
+      const pack = await promise;
+
+      if (isBackgroundTaskRouteActive("/dashboard")) {
+        markBackgroundTaskViewed(id);
+        navigate("/content-pack", {
+          state: {
+            contentPack: pack,
+          },
+        });
+      }
     } catch (err) {
       setError(err.message || "Failed to create content pack.");
     } finally {

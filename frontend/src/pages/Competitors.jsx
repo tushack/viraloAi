@@ -11,8 +11,15 @@ import {
   Video,
   Zap,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { analyzeCompetitorChannel } from "../lib/api";
+import {
+  isBackgroundTaskRouteActive,
+  markBackgroundTaskViewed,
+  runBackgroundTask,
+  useBackgroundTask,
+  useBackgroundTaskById,
+} from "../lib/backgroundTasks";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 
@@ -59,6 +66,16 @@ function isValidYouTubeChannelInput(value) {
 function getScoreNumber(value) {
   return Math.max(0, Math.min(100, Number(value) || 0));
 }
+function normalizeCompetitorAnalysis(data) {
+  return {
+    ...data,
+    niche: "YouTube Channel",
+    opportunityScore: data?.opportunityScore || "0",
+    topVideos: Array.isArray(data?.topVideos) ? data.topVideos : [],
+    recentVideos: Array.isArray(data?.recentVideos) ? data.recentVideos : [],
+  };
+}
+
 
 function Metric({ label, value, hint = "" }) {
   return (
@@ -134,6 +151,8 @@ function VideoCard({ video, onOpen }) {
 }
 
 export default function Competitors() {
+  const location = useLocation();
+  const COMPETITOR_TASK_KEY = "competitor-channel-analysis";
   const [channelUrl, setChannelUrl] = useState("");
   const [competitors, setCompetitors] = useState([]);
   const [selectedAnalysis, setSelectedAnalysis] = useState(null);
@@ -141,6 +160,85 @@ export default function Competitors() {
   const [error, setError] = useState("");
   const insightsRef = useRef(null);
   const navigate = useNavigate();
+  const linkedTaskId = React.useMemo(
+    () => new URLSearchParams(location.search).get("backgroundTask") || "",
+    [location.search]
+  );
+  const linkedTask = useBackgroundTaskById(linkedTaskId);
+  const competitorTask = useBackgroundTask(COMPETITOR_TASK_KEY);
+  const activeCompetitorTask =
+    linkedTask?.kind === "competitor-analysis"
+      ? linkedTask
+      : competitorTask;
+  const appliedCompetitorTaskRef = useRef("");
+
+  const applyCompetitorResult = React.useCallback((analysis) => {
+    if (!analysis) return;
+
+    setSelectedAnalysis(analysis);
+    setCompetitors((current) => [
+      analysis,
+      ...current.filter(
+        (item) =>
+          item.channelId !== analysis.channelId &&
+          item.channelUrl !== analysis.channelUrl
+      ),
+    ].slice(0, 6));
+  }, []);
+
+  React.useEffect(() => {
+    const task = activeCompetitorTask;
+
+    if (!task) return;
+
+    if (task.status === "running") {
+      setLoading(true);
+      return;
+    }
+
+    setLoading(false);
+
+    const shouldApply =
+      task.id === linkedTaskId || !task.viewedAt;
+
+    if (
+      task.status === "completed" &&
+      task.result &&
+      shouldApply &&
+      appliedCompetitorTaskRef.current !== task.id
+    ) {
+      appliedCompetitorTaskRef.current = task.id;
+      setChannelUrl(task.input?.channelUrl || "");
+      setError("");
+      applyCompetitorResult(task.result);
+
+      window.setTimeout(() => {
+        insightsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 0);
+    }
+
+    if (task.status === "failed" && shouldApply) {
+      setError(
+        task.error?.message ||
+          "Failed to analyze this competitor channel."
+      );
+    }
+
+    if (
+      !task.viewedAt &&
+      isBackgroundTaskRouteActive("/competitors")
+    ) {
+      markBackgroundTaskViewed(task.id);
+    }
+  }, [
+    activeCompetitorTask,
+    applyCompetitorResult,
+    linkedTaskId,
+  ]);
+
 
   const handleOpenUrl = (url) => {
     if (!url) return;
@@ -177,17 +275,25 @@ export default function Competitors() {
       setLoading(true);
       setError("");
 
-      const data = await analyzeCompetitorChannel({
-        channelUrl: cleanInput,
+            const { promise } = runBackgroundTask({
+        key: COMPETITOR_TASK_KEY,
+        kind: "competitor-analysis",
+        title: `Competitor analysis: ${cleanInput}`,
+        route: "/competitors",
+        input: {
+          channelUrl: cleanInput,
+        },
+        successMessage: "The competitor channel analysis is ready.",
+        errorMessage: "The competitor channel analysis could not be completed.",
+        run: async () =>
+          normalizeCompetitorAnalysis(
+            await analyzeCompetitorChannel({
+              channelUrl: cleanInput,
+            })
+          ),
       });
 
-      const analyzedCompetitor = {
-        ...data,
-        niche: "YouTube Channel",
-        opportunityScore: data.opportunityScore || "0",
-        topVideos: Array.isArray(data.topVideos) ? data.topVideos : [],
-        recentVideos: Array.isArray(data.recentVideos) ? data.recentVideos : [],
-      };
+      const analyzedCompetitor = await promise;
 
       setSelectedAnalysis(analyzedCompetitor);
 

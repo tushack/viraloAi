@@ -30,6 +30,12 @@ import {
   saveIdea,
   searchTrendTopics,
 } from "../lib/api";
+import {
+  isBackgroundTaskRouteActive,
+  markBackgroundTaskViewed,
+  runBackgroundTask,
+  useBackgroundTaskByKind,
+} from "../lib/backgroundTasks";
 
 const PLATFORM_OPTIONS = ["YouTube", "YouTube Shorts"];
 
@@ -74,6 +80,8 @@ const INITIAL_FILTERS = {
   contentType: "All",
   momentum: "All",
 };
+
+const CONTENT_PACK_TASK_KEY = "content-pack-generate";
 
 function getText(value, fallback = "") {
   if (typeof value === "string") return value;
@@ -338,6 +346,23 @@ export default function Trends() {
   const [savingText, setSavingText] = useState("");
   const [contentPackLoading, setContentPackLoading] = useState("");
   const [error, setError] = useState("");
+  const contentPackTask = useBackgroundTaskByKind("content-pack-generate");
+
+  useEffect(() => {
+    if (contentPackTask?.status === "running") {
+      setContentPackLoading(contentPackTask?.input?.topic || "");
+      return;
+    }
+
+    if (contentPackTask) {
+      setContentPackLoading("");
+    }
+  }, [
+    contentPackTask?.id,
+    contentPackTask?.input?.topic,
+    contentPackTask?.status,
+  ]);
+
 
   const visibleSections = useMemo(() => {
     const sections = (
@@ -564,21 +589,39 @@ export default function Trends() {
     try {
       setContentPackLoading(title);
 
-      const pack = await createContentPack({
-        topic: title,
-        growth: item?.momentum || "Live signal",
-        competition: item?.competition || "Medium",
-        insight: item?.insight || "Live trend opportunity.",
-        niche: item?.sourceQuery || "Live trend",
-        platform: item?.platform || filters.platform,
-        audience: "Creators researching current topics",
+      const { id, promise } = runBackgroundTask({
+        key: `${CONTENT_PACK_TASK_KEY}:${title.toLowerCase().trim()}`,
+        kind: "content-pack-generate",
+        title: `Content pack: ${title}`,
+        route: "/content-pack",
+        input: {
+          topic: title,
+          sourceRoute: "/trends",
+        },
+        successMessage: `Your content pack for "${title}" is ready.`,
+        errorMessage: "The content pack could not be generated.",
+        run: () =>
+          createContentPack({
+            topic: title,
+            growth: item?.momentum || "Live signal",
+            competition: item?.competition || "Medium",
+            insight: item?.insight || "Live trend opportunity.",
+            niche: item?.sourceQuery || "Live trend",
+            platform: item?.platform || filters.platform,
+            audience: "Creators researching current topics",
+          }),
       });
 
-      navigate("/content-pack", {
-        state: {
-          contentPack: pack,
-        },
-      });
+      const pack = await promise;
+
+      if (isBackgroundTaskRouteActive("/trends")) {
+        markBackgroundTaskViewed(id);
+        navigate("/content-pack", {
+          state: {
+            contentPack: pack,
+          },
+        });
+      }
     } catch (err) {
       setError(err.message || "Failed to create content pack.");
     } finally {

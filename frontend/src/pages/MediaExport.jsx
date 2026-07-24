@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -15,7 +15,7 @@ import {
   UploadCloud,
   Video,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -26,6 +26,13 @@ import {
   getMediaExports,
   previewYoutubeVideo,
 } from "../lib/api";
+import {
+  isBackgroundTaskRouteActive,
+  markBackgroundTaskViewed,
+  runBackgroundTask,
+  useBackgroundTask,
+  useBackgroundTaskById,
+} from "../lib/backgroundTasks";
 
 const VIDEO_QUALITIES = [
   { value: "original", label: "Original" },
@@ -36,6 +43,7 @@ const VIDEO_QUALITIES = [
 ];
 
 const AUDIO_BITRATES = [128, 192, 320];
+const MEDIA_EXPORT_TASK_KEY = "youtube-media-export";
 
 function formatBytes(bytes) {
   const value = Number(bytes || 0);
@@ -74,6 +82,7 @@ export default function MediaExport() {
   const fileInputRef = useRef(null);
   const previewCardRef = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [youtubePreview, setYoutubePreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -90,6 +99,86 @@ export default function MediaExport() {
   const [success, setSuccess] = useState("");
   const [downloadingId, setDownloadingId] = useState("");
   const [deletingId, setDeletingId] = useState("");
+  const linkedTaskId = useMemo(
+    () => new URLSearchParams(location.search).get("backgroundTask") || "",
+    [location.search]
+  );
+  const linkedTask = useBackgroundTaskById(linkedTaskId);
+  const mediaExportTask = useBackgroundTask(MEDIA_EXPORT_TASK_KEY);
+  const activeMediaExportTask =
+    linkedTask?.kind === "media-export" ? linkedTask : mediaExportTask;
+  const appliedMediaExportTaskRef = useRef("");
+
+  useEffect(() => {
+    const task = activeMediaExportTask;
+
+    if (!task) return;
+
+    if (task.status === "running") {
+      setExporting(true);
+      setUploadProgress(
+        Math.max(0, Math.min(95, Number(task.progress || 0)))
+      );
+      return;
+    }
+
+    setExporting(false);
+
+    const shouldApply =
+      task.id === linkedTaskId || !task.viewedAt;
+
+    if (
+      task.status === "completed" &&
+      task.result?.exportItem &&
+      shouldApply &&
+      appliedMediaExportTaskRef.current !== task.id
+    ) {
+      appliedMediaExportTaskRef.current = task.id;
+
+      if (task.input?.source?.youtubeUrl) {
+        setYoutubeUrl(task.input.source.youtubeUrl);
+      }
+
+      if (task.input?.outputType) {
+        setOutputType(task.input.outputType);
+      }
+
+      if (task.input?.videoQuality) {
+        setVideoQuality(task.input.videoQuality);
+      }
+
+      if (task.input?.audioBitrate) {
+        setAudioBitrate(task.input.audioBitrate);
+      }
+
+      setUploadProgress(100);
+      setError("");
+      setHistory((current) => [
+        task.result.exportItem,
+        ...current.filter(
+          (item) => item.id !== task.result.exportItem.id
+        ),
+      ]);
+      setSuccess(
+        "Your file is ready. Use the Download button below to download it."
+      );
+    }
+
+    if (task.status === "failed" && shouldApply) {
+      setError(
+        task.error?.message ||
+          "Could not export this media file."
+      );
+    }
+
+    if (
+      !task.viewedAt &&
+      isBackgroundTaskRouteActive("/media-export")
+    ) {
+      markBackgroundTaskViewed(task.id);
+    }
+  }, [activeMediaExportTask, linkedTaskId]);
+
 
   const hasYoutubeLink = Boolean(youtubeUrl.trim());
   const hasUploadedFile = Boolean(selectedFile);
@@ -190,19 +279,56 @@ export default function MediaExport() {
       setError("");
       setSuccess("");
 
-      const data = await convertOwnedMedia({
-        file: selectedFile,
-        outputType,
-        videoQuality,
-        audioBitrate,
-        rightsAcknowledged: rightsAccepted,
-        youtubeUrl: youtubePreview?.url || youtubeUrl.trim(),
-        youtubeVideoId: youtubePreview?.videoId || "",
-        youtubeTitle: youtubePreview?.title || "",
-        onUploadProgress: (progress) => {
-          setUploadProgress(Math.min(95, Math.max(0, progress)));
+            const sourceLabel =
+        youtubePreview?.title ||
+        selectedFile?.name ||
+        "YouTube media";
+
+      const { promise } = runBackgroundTask({
+        key: MEDIA_EXPORT_TASK_KEY,
+        kind: "media-export",
+        title: `Media export: ${sourceLabel}`,
+        route: "/media-export",
+        input: {
+          source: selectedFile
+            ? {
+                name: selectedFile.name,
+                size: selectedFile.size,
+                type: selectedFile.type,
+              }
+            : {
+                youtubeUrl: youtubePreview?.url || youtubeUrl.trim(),
+                youtubeVideoId: youtubePreview?.videoId || "",
+                youtubeTitle: youtubePreview?.title || "",
+              },
+          outputType,
+          videoQuality,
+          audioBitrate,
         },
+        successMessage: `${sourceLabel} is ready to download.`,
+        errorMessage: "The media export could not be completed.",
+        run: ({ reportProgress }) =>
+          convertOwnedMedia({
+            file: selectedFile,
+            outputType,
+            videoQuality,
+            audioBitrate,
+            rightsAcknowledged: rightsAccepted,
+            youtubeUrl: youtubePreview?.url || youtubeUrl.trim(),
+            youtubeVideoId: youtubePreview?.videoId || "",
+            youtubeTitle: youtubePreview?.title || "",
+            onUploadProgress: (progress) => {
+              const safeProgress = Math.min(
+                95,
+                Math.max(0, progress)
+              );
+              setUploadProgress(safeProgress);
+              reportProgress(safeProgress, "Uploading and converting media...");
+            },
+          }),
       });
+
+      const data = await promise;
 
       setUploadProgress(100);
       setHistory((current) => [

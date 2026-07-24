@@ -32,6 +32,7 @@ import LegalInfoPage from "./pages/LegalInfoPage";
 import ContactUs from "./pages/ContactUs";
 import { restorePaymentAccess } from "./lib/paymentApi";
 import RefundCancellation from "./pages/RefundCancellation";
+import BackgroundTaskCenter from "./components/background/BackgroundTaskCenter";
 
 function PageLoader({ message = "Loading Viralo AI..." }) {
   return (
@@ -285,6 +286,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthModal />
+      <BackgroundTaskCenter />
 
       <Routes>
         <Route path="/" element={<HomeRoute />} />

@@ -32,8 +32,17 @@ import {
   saveGeneratedThumbnail,
 } from "../lib/thumbnailStore";
 import { applyYoutubeReadyKit, generateAiThumbnail } from "../lib/api";
+import {
+  isBackgroundTaskRouteActive,
+  markBackgroundTaskViewed,
+  runBackgroundTask,
+  useBackgroundTask,
+  useBackgroundTaskById,
+  useBackgroundTaskByKind,
+} from "../lib/backgroundTasks";
 
 const SAVED_CONTENT_PACK_LIMIT = 30;
+const CONTENT_PACK_TASK_KEY = "content-pack-generate";
 
 function getSavedContentPackKey(userId) {
   return userId
@@ -546,7 +555,31 @@ export default function ContentPack() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const incomingPack = location.state?.contentPack;
+  const linkedTaskId = React.useMemo(
+    () => new URLSearchParams(location.search).get("backgroundTask") || "",
+    [location.search]
+  );
+  const linkedTask = useBackgroundTaskById(linkedTaskId);
+  const generatedPackTask = useBackgroundTaskByKind("content-pack-generate");
+
+  const linkedPack =
+    linkedTask?.kind === "content-pack-generate"
+      ? linkedTask.result
+      : linkedTask?.kind === "content-pack-thumbnail"
+        ? linkedTask.input?.pack
+        : null;
+
+  const unviewedGeneratedPack =
+    generatedPackTask?.status === "completed" &&
+    !generatedPackTask?.viewedAt
+      ? generatedPackTask.result
+      : null;
+
+  const incomingPack =
+    location.state?.contentPack ||
+    linkedPack ||
+    unviewedGeneratedPack ||
+    null;
   const { user } = useAuth();
 
   const savedPackKey = React.useMemo(
@@ -578,10 +611,51 @@ export default function ContentPack() {
       setSelectedRawPack(incomingPack);
     }
   }, [incomingPack]);
+  React.useEffect(() => {
+    const task = linkedTaskId
+      ? linkedTask?.kind === "content-pack-generate"
+        ? linkedTask
+        : null
+      : generatedPackTask;
+
+    if (
+      task?.status !== "completed" ||
+      !task.result
+    ) {
+      return;
+    }
+
+    const shouldApply =
+      task.id === linkedTaskId || !task.viewedAt;
+
+    if (!shouldApply) return;
+
+    setSelectedRawPack(task.result);
+
+    if (
+      !task.viewedAt &&
+      isBackgroundTaskRouteActive("/content-pack")
+    ) {
+      markBackgroundTaskViewed(task.id);
+    }
+  }, [
+    generatedPackTask,
+    linkedTask,
+    linkedTaskId,
+  ]);
+
 
   const rawPack = selectedRawPack || savedPacks[0]?.pack || null;
   const pack = rawPack ? buildDynamicPack(rawPack) : null;
   const activePackId = rawPack ? getPackId(rawPack) : "";
+  const thumbnailTaskKey = `content-pack-thumbnail:${activePackId || "none"}`;
+  const thumbnailTask = useBackgroundTask(thumbnailTaskKey);
+  const activeThumbnailTask =
+    linkedTask?.kind === "content-pack-thumbnail"
+      ? linkedTask
+      : thumbnailTask;
+  const appliedThumbnailTaskRef = React.useRef("");
+
   const isCurrentPackSaved = savedPacks.some((item) => item.id === activePackId);
 
   const autoThumbnailStartedRef = React.useRef(false);
@@ -677,15 +751,32 @@ export default function ContentPack() {
       setThumbnailSaveError("");
 
       try {
-        const result = await generateAiThumbnail({
-          pack,
-          prompt: auto ? "" : thumbnailPrompt,
-          variant: aiThumbnails.length + 1,
+                const { id, promise } = runBackgroundTask({
+          key: thumbnailTaskKey,
+          kind: "content-pack-thumbnail",
+          title: `Thumbnail: ${pack.topic || "Content pack"}`,
+          route: "/content-pack",
+          input: {
+            packId: activePackId,
+            pack: rawPack,
+            topic: pack.topic || "",
+            prompt: auto ? "" : thumbnailPrompt,
+            auto,
+          },
+          successMessage: `The AI thumbnail for "${pack.topic || "your content pack"}" is ready.`,
+          errorMessage: "The AI thumbnail could not be generated.",
+          run: () =>
+            generateAiThumbnail({
+              pack,
+              prompt: auto ? "" : thumbnailPrompt,
+              variant: aiThumbnails.length + 1,
+            }),
         });
 
+        const result = await promise;
         const generatedThumbnail = {
           ...result,
-          localId: `${Date.now()}-${aiThumbnails.length + 1}`,
+          localId: id,
           isSaved: false,
         };
 
@@ -698,8 +789,86 @@ export default function ContentPack() {
         setThumbnailLoading(false);
       }
     },
-    [aiThumbnails.length, pack, thumbnailLoading, thumbnailPrompt]
+    [
+      activePackId,
+      aiThumbnails.length,
+      pack,
+      rawPack,
+      thumbnailLoading,
+      thumbnailPrompt,
+      thumbnailTaskKey,
+    ]
   );
+
+
+  React.useEffect(() => {
+    const task = activeThumbnailTask;
+
+    if (!task) return;
+
+    if (task.status === "running") {
+      autoThumbnailStartedRef.current = true;
+      setThumbnailLoading(true);
+      return;
+    }
+
+    setThumbnailLoading(false);
+
+    const samePack =
+      !task.input?.packId ||
+      !activePackId ||
+      task.input.packId === activePackId;
+
+    const shouldApply =
+      task.id === linkedTaskId || !task.viewedAt;
+
+    if (
+      task.status === "completed" &&
+      task.result &&
+      samePack &&
+      shouldApply &&
+      appliedThumbnailTaskRef.current !== task.id
+    ) {
+      appliedThumbnailTaskRef.current = task.id;
+      autoThumbnailStartedRef.current = true;
+
+      const generatedThumbnail = {
+        ...task.result,
+        localId: task.id,
+        isSaved: false,
+      };
+
+      setAiThumbnails((current) => [
+        generatedThumbnail,
+        ...current.filter(
+          (item) =>
+            item.localId !== generatedThumbnail.localId &&
+            item.imageUrl !== generatedThumbnail.imageUrl
+        ),
+      ].slice(0, 6));
+
+      setThumbnailError("");
+    }
+
+    if (task.status === "failed" && shouldApply) {
+      autoThumbnailStartedRef.current = true;
+      setThumbnailError(
+        task.error?.message ||
+          "Could not generate a thumbnail."
+      );
+    }
+
+    if (
+      !task.viewedAt &&
+      isBackgroundTaskRouteActive("/content-pack")
+    ) {
+      markBackgroundTaskViewed(task.id);
+    }
+  }, [
+    activePackId,
+    activeThumbnailTask,
+    linkedTaskId,
+  ]);
 
   const handleSaveThumbnail = React.useCallback(
     async (thumbnail) => {

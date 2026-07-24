@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -29,6 +29,13 @@ import DashboardLayout from "../components/layout/DashboardLayout";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { analyzeViralPotential } from "../lib/api";
+import {
+  isBackgroundTaskRouteActive,
+  markBackgroundTaskViewed,
+  runBackgroundTask,
+  useBackgroundTask,
+  useBackgroundTaskById,
+} from "../lib/backgroundTasks";
 
 const PLATFORM_OPTIONS = [
   "YouTube",
@@ -70,6 +77,7 @@ const INITIAL_FORM = {
 };
 
 const STEP1_REQUIRED = ["niche", "audience", "topic", "title"];
+const VIRAL_CHECK_TASK_KEY = "viral-check-analysis";
 
 function formatNumber(value) {
   const number = Number(value);
@@ -353,12 +361,77 @@ const labelClass =
 
 export default function ViralCheck() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [form, setForm] = useState(INITIAL_FORM);
   const [step, setStep] = useState(1);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const linkedTaskId = useMemo(
+    () => new URLSearchParams(location.search).get("backgroundTask") || "",
+    [location.search]
+  );
+  const linkedTask = useBackgroundTaskById(linkedTaskId);
+  const viralTask = useBackgroundTask(VIRAL_CHECK_TASK_KEY);
+  const activeViralTask =
+    linkedTask?.kind === "viral-check" ? linkedTask : viralTask;
+  const appliedViralTaskRef = useRef("");
+
+  useEffect(() => {
+    const task = activeViralTask;
+
+    if (!task) return;
+
+    if (task.status === "running") {
+      setLoading(true);
+      return;
+    }
+
+    setLoading(false);
+
+    const shouldApply =
+      task.id === linkedTaskId || !task.viewedAt;
+
+    if (
+      task.status === "completed" &&
+      task.result &&
+      shouldApply &&
+      appliedViralTaskRef.current !== task.id
+    ) {
+      appliedViralTaskRef.current = task.id;
+
+      if (task.input?.form) {
+        setForm((current) => ({
+          ...current,
+          ...task.input.form,
+        }));
+      }
+
+      setResult(task.result);
+      setStep(2);
+      setError("");
+
+      window.setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 0);
+    }
+
+    if (task.status === "failed" && shouldApply) {
+      setError(
+        task.error?.message ||
+          "Failed to analyze viral potential."
+      );
+    }
+
+    if (
+      !task.viewedAt &&
+      isBackgroundTaskRouteActive("/viral-check")
+    ) {
+      markBackgroundTaskViewed(task.id);
+    }
+  }, [activeViralTask, linkedTaskId]);
+
 
   const scoreTone = getScoreTone(result?.viralScore || 0);
 
@@ -438,10 +511,25 @@ export default function ViralCheck() {
     try {
       setLoading(true);
 
-      const data = await analyzeViralPotential({
+      const requestPayload = {
         ...form,
         averageViews: form.averageViews ? Number(form.averageViews) : null,
+      };
+
+      const { promise } = runBackgroundTask({
+        key: VIRAL_CHECK_TASK_KEY,
+        kind: "viral-check",
+        title: `Viral check: ${form.title.trim()}`,
+        route: "/viral-check",
+        input: {
+          form: requestPayload,
+        },
+        successMessage: `The viral check for "${form.title.trim()}" is ready.`,
+        errorMessage: "The viral check could not be completed.",
+        run: () => analyzeViralPotential(requestPayload),
       });
+
+      const data = await promise;
 
       setResult(data);
       window.scrollTo({ top: 0, behavior: "smooth" });
